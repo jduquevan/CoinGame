@@ -1,0 +1,31 @@
+hydra:
+  output_subdir: null
+  run:
+    dir: /network/scratch/j/juan.duque/hydra/
+
+seed: 7
+reward_window: 10
+num_episodes: 1000000
+kl_weight: 0
+env:
+  max_steps: 50
+  split_coins: False
+  grid_size: 2
+base_agent:
+  gamma: 0.95
+  opt_type: "eg"
+vip_agent:
+  optim_config:
+    lr: 0.00001
+    momentum: 0.9
+    weight_decay: 1e-5
+    beta_1: 0.9
+    beta_2: 0.999
+  batch_size: 48
+  rollout_len: 50
+  representation_size: 16
+  hidden_size: 64
+  history_len: 4
+  collab_weight: 1
+  exploit_weight: 1
+  entropy_weight: 0.05

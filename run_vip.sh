@@ -1,7 +1,7 @@
 #!/bin/bash
-SEEDS=(7)
-LRS=(0.0005)
-KLS=(0 0.1 1 10 100 1000)
+SEEDS=(1)
+LRS=(0.005)
+KLS=(0)
 
 for lr in ${LRS[@]}; do
     for seed in ${SEEDS[@]}; do

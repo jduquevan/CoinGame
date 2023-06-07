@@ -28,13 +28,18 @@ def main(args: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     reward_window = config["reward_window"]
     num_episodes = config["num_episodes"]
+    sp_weight = config["sp_weight"]
     kl_weight = config["kl_weight"]
     batch_size = config["vip_agent"]["batch_size"]
 
     env = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
     eval_env = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
-    model = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
-    action_model = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
+    model_1 = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
+    action_model_1 = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
+    action_models_1 = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
+    model_2 = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
+    action_model_2 = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
+    action_models_2 = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
     obs, _ = env.reset()
     
     agent_1 = VIPAgent(config["base_agent"],
@@ -42,15 +47,17 @@ def main(args: DictConfig):
                        device=device,
                        n_actions=n_actions,
                        obs_shape=obs.shape,
-                       model=model,
-                       action_model=action_model)
+                       model=model_1,
+                       action_model=action_model_1,
+                       action_models=action_models_1)
     agent_2 = VIPAgent(config["base_agent"],
                        **config["vip_agent"],
                        device=device, 
                        n_actions=n_actions,
                        obs_shape=obs.shape,
-                       model=model,
-                       action_model=action_model)
+                       model=model_2,
+                       action_model=action_model_2,
+                       action_models=action_models_2)
 
     run_vip(env=env,
             eval_env=eval_env,
@@ -61,7 +68,8 @@ def main(args: DictConfig):
             device=device,
             num_episodes=config["num_episodes"],
             n_actions=n_actions,
-            kl_weight=kl_weight)
+            kl_weight=kl_weight,
+            sp_weight=sp_weight)
         
 
 if __name__ == "__main__":

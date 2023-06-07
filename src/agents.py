@@ -41,7 +41,8 @@ class VIPAgent(BaseAgent):
                  n_actions,
                  obs_shape,
                  model,
-                 action_model):
+                 action_model,
+                 action_models):
         BaseAgent.__init__(self,
                            **config, 
                            device=device,
@@ -60,9 +61,9 @@ class VIPAgent(BaseAgent):
         self.transition: list = list()
 
         self.qa_module = HistoryAggregator(in_size=self.obs_size + 2*n_actions,
-                                                    out_size=self.representation_size,
-                                                    device=self.device,
-                                                    hidden_size=self.hidden_size)
+                                           out_size=self.representation_size,
+                                           device=self.device,
+                                           hidden_size=self.hidden_size)
         
         self.actor = VIPActor(in_size=self.obs_size + 2*n_actions + self.representation_size,
                               out_size=self.n_actions,
@@ -72,6 +73,7 @@ class VIPAgent(BaseAgent):
         self.actor.to(self.device)
         self.model = model
         self.action_model = action_model
+        self.action_models = action_models
 
         if self.opt_type.lower() == "sgd":
             self.optimizer = optim.SGD(list(self.actor.parameters()) + 
@@ -145,7 +147,7 @@ class VIPAgent(BaseAgent):
             last_a = torch.nn.functional.one_hot(actions_a, self.n_actions)
             last_b = torch.nn.functional.one_hot(actions_b, self.n_actions)
             
-            obs, r, _, _ = self.model.step([actions_a, actions_b])
+            obs, r, _, _ = self.action_models.step([actions_a, actions_b])
             obs_a, obs_b = obs
 
             states_a = torch.cat([obs_a.reshape(self.batch_size, -1), last_a, last_b], dim=1)
@@ -160,20 +162,24 @@ class VIPAgent(BaseAgent):
     def select_action(self, state_a, state_b, agent, h_a, h_b):
         self.steps_done += 1
         agent_r = self.get_agent_representation(state_a, state_b, agent, h_a, h_b)
-        h_a, dist_a = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
+        h_a_cond, dist_a = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
         action = torch.tensor([np.random.choice(self.n_actions, p=dist_a.cpu().detach().numpy())],
                               requires_grad=False,
                               device=self.device)
-        return h_a, action
+        return h_a_cond, action, agent_r
     
-    def compute_kl_divergence(self, state_a, state_b, agent):
-        _, _, h_a, h_b, _, _ = self.transition
-        no_info = -1 * torch.ones(self.representation_size).to(self.device)
-        agent_r = self.get_agent_representation(state_a, state_b, agent, h_a, h_b)
+    def compute_kl_divergence(self, state_a, agent_r, h_a):
+        no_info = -1*torch.ones(self.representation_size).to(self.device)
         _, pi_info = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
         _, pi_no_info = self.actor(torch.cat([state_a, no_info]), h_a)
         kl = torch.sum(pi_no_info * torch.log(torch.div(pi_no_info, pi_info)))
         return kl
+
+    def compute_entropy_normalized(self, state_a, agent_r, h_a):
+        _, pi = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
+        ent = -1 * torch.sum(pi * torch.log(pi))
+        max_ent = torch.log(torch.ones(1)*self.n_actions).to(self.device)
+        return ent/max_ent
 
     def compute_pg_loss(self, agent, agent_t=1):
         self.cum_steps = self.cum_steps + 1
@@ -198,14 +204,16 @@ class VIPAgent(BaseAgent):
         h_b = torch.permute(h_b, (1, 0, 2))
 
         for i in range(self.rollout_len):
+            # if steps % self.rollout_len == 0:
+            #     h_a, h_b = None, None
+            #     last_a = -1*torch.ones(self.batch_size, self.n_actions).to(self.device)
+            #     last_b = -1*torch.ones(self.batch_size, self.n_actions).to(self.device)
+
+            self.action_models.clone_env_batch(self.model)
+
             states_a = torch.cat([obs_a, last_a, last_b], dim=1)
             states_b = torch.cat([obs_b, last_b, last_a], dim=1)
-
-            if steps % self.rollout_len == 0:
-                h_a, h_b = None, None
-                last_a = -1*torch.ones(self.batch_size, self.n_actions).to(self.device)
-                last_b = -1*torch.ones(self.batch_size, self.n_actions).to(self.device)
-
+            
             reps_a = self.get_agent_representations(states_a, states_b, agent, h_a, h_b)
             reps_b = self.get_agent_representations(states_b, states_a, self, h_b, h_a)
 
@@ -216,13 +224,9 @@ class VIPAgent(BaseAgent):
             h_b = torch.permute(h_b, (1, 0, 2))
             dists_a = dists_a.reshape((self.batch_size, -1))
             dists_b = dists_b.reshape((self.batch_size, -1))
-            
-            actions_a = torch.tensor([np.random.choice(self.n_actions, p=dist.cpu().detach().numpy()) for dist in dists_a],
-                                requires_grad=False,
-                                device=self.device)
-            actions_b = torch.tensor([np.random.choice(self.n_actions, p=dist.cpu().detach().numpy()) for dist in dists_b],
-                                requires_grad=False,
-                                device=self.device)
+
+            actions_a = torch.multinomial(dists_a, 1).reshape(self.batch_size)
+            actions_b = torch.multinomial(dists_b, 1).reshape(self.batch_size)
 
             last_a = torch.nn.functional.one_hot(actions_a, self.n_actions)
             last_b = torch.nn.functional.one_hot(actions_b, self.n_actions)
@@ -232,7 +236,7 @@ class VIPAgent(BaseAgent):
 
             log_probs_a.append(torch.log(a_t_probs))
             log_probs_b.append(torch.log(b_t_probs))
-
+            
             if agent_t == 1:
                 obs, r, _, _ = self.model.step([actions_a, actions_b])
                 obs_a, obs_b = obs
@@ -242,10 +246,12 @@ class VIPAgent(BaseAgent):
                 obs_b, obs_a = obs
                 r2, r1 = r
 
+            r1_reg = r1 - self.entropy_weight * torch.log(a_t_probs)
+
             obs_a = obs_a.reshape((self.batch_size, -1))
             obs_b = obs_b.reshape((self.batch_size, -1))
             
-            t_rewards.append(r1)
+            t_rewards.append(r1_reg)
             
             steps = steps + 1
         gammas = torch.tensor(self.gamma).repeat(self.batch_size, self.rollout_len - 1).to(self.device)
@@ -253,8 +259,9 @@ class VIPAgent(BaseAgent):
         gammas = torch.cat([torch.ones(self.batch_size, 1).to(self.device), gammas], dim=1)
         rewards_t = torch.permute(torch.stack(t_rewards), (1, 0))
         returns = torch.sum(rewards_t*gammas, dim=1)
-        log_probs = torch.permute(torch.stack(log_probs_a) + torch.stack(log_probs_b), (1, 0))
-        sum_log_probs = torch.sum(log_probs, dim=1)
+        log_probs_c = torch.permute(torch.stack(log_probs_a) + torch.stack(log_probs_b), (1, 0))
+        # log_probs_d = torch.permute(torch.stack(log_probs_a) + torch.stack(log_probs_b).detach(), (1, 0))
+        sum_log_probs = torch.sum(log_probs_c, dim=1)
         pg_loss = torch.mean(returns * sum_log_probs)
 
         return pg_loss

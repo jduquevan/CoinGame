@@ -86,6 +86,24 @@ class OGCoinGameGPU:
         self.blue_pos = game.blue_pos.repeat(self.batch_size, 1)
         self.coin_pos = game.coin_pos.repeat(self.batch_size, 1)
 
+    def clone_env_batch(self, game):
+        self.step_count = game.step_count
+        self.red_coin = game.red_coin.clone()
+        self.red_dist = game.red_dist.clone()
+        self.blue_dist = game.blue_dist.clone()
+        self.red_pos = game.red_pos.clone()
+        self.blue_pos = game.blue_pos.clone()
+        self.coin_pos = game.coin_pos.clone()
+
+    def clone_env_inv(self, game):
+        self.step_count = game.step_count
+        self.red_coin = 1 - game.red_coin.repeat(self.batch_size)
+        self.red_dist = game.blue_dist.repeat(self.batch_size)
+        self.blue_dist = game.red_dist.repeat(self.batch_size)
+        self.red_pos = game.blue_pos.repeat(self.batch_size, 1)
+        self.blue_pos = game.red_pos.repeat(self.batch_size, 1)
+        self.coin_pos = game.coin_pos.repeat(self.batch_size, 1)
+
     def _generate_coins(self):
         mask = torch.logical_or(self._same_pos(self.coin_pos, self.blue_pos), self._same_pos(self.coin_pos, self.red_pos))
         self.red_coin = torch.where(mask, 1 - self.red_coin, self.red_coin)

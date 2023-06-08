@@ -42,7 +42,8 @@ class VIPAgent(BaseAgent):
                  obs_shape,
                  model,
                  action_model,
-                 action_models):
+                 action_models,
+                 qa_module=None):
         BaseAgent.__init__(self,
                            **config, 
                            device=device,
@@ -59,16 +60,20 @@ class VIPAgent(BaseAgent):
         self.entropy_weight = entropy_weight
         self.n_actions = n_actions
         self.transition: list = list()
-
-        self.qa_module = HistoryAggregator(in_size=self.obs_size + 2*n_actions,
-                                           out_size=self.representation_size,
-                                           device=self.device,
-                                           hidden_size=self.hidden_size)
+        
+        if qa_module != None:
+            self.qa_module = qa_module
+        else:
+            self.qa_module = HistoryAggregator(in_size=self.obs_size + 2*n_actions,
+                                            out_size=self.representation_size,
+                                            device=self.device,
+                                            hidden_size=self.hidden_size)
         
         self.actor = VIPActor(in_size=self.obs_size + 2*n_actions + self.representation_size,
                               out_size=self.n_actions,
                               device=self.device,
                               hidden_size=self.hidden_size)
+        
         self.qa_module.to(self.device)
         self.actor.to(self.device)
         self.model = model
@@ -246,12 +251,12 @@ class VIPAgent(BaseAgent):
                 obs_b, obs_a = obs
                 r2, r1 = r
 
-            r1_reg = r1 - self.entropy_weight * torch.log(a_t_probs)
+            # r1_reg = r1 - self.entropy_weight * torch.log(a_t_probs)
 
             obs_a = obs_a.reshape((self.batch_size, -1))
             obs_b = obs_b.reshape((self.batch_size, -1))
             
-            t_rewards.append(r1_reg)
+            t_rewards.append(r1)
             
             steps = steps + 1
         gammas = torch.tensor(self.gamma).repeat(self.batch_size, self.rollout_len - 1).to(self.device)

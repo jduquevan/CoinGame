@@ -57,7 +57,8 @@ def main(args: DictConfig):
                        obs_shape=obs.shape,
                        model=model_2,
                        action_model=action_model_2,
-                       action_models=action_models_2)
+                       action_models=action_models_2,
+                       qa_module=agent_1.qa_module)
 
     run_vip(env=env,
             eval_env=eval_env,

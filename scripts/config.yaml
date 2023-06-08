@@ -12,7 +12,7 @@ grad_max_norm: 1
 env:
   max_steps: 50
   split_coins: False
-  grid_size: 2
+  grid_size: 3
 base_agent:
   gamma: 0.999
   opt_type: "eg"
@@ -23,7 +23,7 @@ vip_agent:
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
-  batch_size: 2800
+  batch_size: 2500
   rollout_len: 50
   representation_size: 16
   hidden_size: 64

@@ -4,7 +4,7 @@ hydra:
     dir: /network/scratch/j/juan.duque/hydra/
 
 seed: 7
-reward_window: 10
+reward_window: 7
 num_episodes: 1000000
 sp_weight: 1
 kl_weight: 0
@@ -23,9 +23,9 @@ vip_agent:
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
-  batch_size: 2500
+  batch_size: 2800
   rollout_len: 50
-  representation_size: 16
+  representation_size: 4
   hidden_size: 64
   history_len: 4
   collab_weight: 1

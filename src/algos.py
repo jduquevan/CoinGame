@@ -55,9 +55,10 @@ def evaluate_agent(agent, fixed_agent, evaluation_steps, env):
     obs_a, obs_b, h_a, h_b = agent.transition
     no_info = -1 * torch.ones(agent.representation_size).to(agent.device)
     rewards = []
-
+    agent.action_model.clone_env(env)
     for i in range(evaluation_steps):
-        h_a, dist_a = agent.actor(torch.cat([obs_a.flatten(), no_info]), h_a)
+        agent_r = agent.get_fixed_representation(obs_a.flatten(), fixed_agent, h_a, env)
+        h_a, dist_a = agent.actor(torch.cat([obs_a.flatten(), agent_r.flatten()]), h_a)
         action_a = torch.multinomial(dist_a, 1)
         action_b, dist_a = fixed_agent.select_action(env)
 

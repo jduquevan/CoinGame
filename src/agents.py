@@ -25,25 +25,28 @@ class BaseAgent():
         self.obs_size = reduce(lambda a, b: a * b, self.obs_shape)
 
 class AlwaysCooperateAgent():
-    def __init__(self, is_p_1, device):
+    def __init__(self, is_p_1, device, n_actions):
         self.cum_steps = 0
         self.device = device
+        self.n_actions = n_actions
         self.is_p_1 = torch.tensor(is_p_1).to(self.device)
 
     def select_action(self, env):
         action = env.get_coop_action(self.is_p_1)
-        dist = torch.nn.functional.one_hot(action)
+        dist = torch.nn.functional.one_hot(action, self.n_actions).to(self.device)
         return action, dist
 
+
 class AlwaysDefectAgent():
-    def __init__(self, is_p_1, device):
+    def __init__(self, is_p_1, device, n_actions):
         self.cum_steps = 0
         self.device = device
+        self.n_actions = n_actions
         self.is_p_1 = torch.tensor(is_p_1).to(self.device)
 
     def select_action(self, env):
         action = env.get_moves_shortest_path_to_coin(self.is_p_1)
-        dist = torch.nn.functional.one_hot(action)
+        dist = torch.nn.functional.one_hot(action, self.n_actions).to(self.device)
         return action, dist
 
 class VIPAgent(BaseAgent):
@@ -120,6 +123,26 @@ class VIPAgent(BaseAgent):
                                        lr=optim_config["lr"],
                                        betas=(optim_config["beta_1"], optim_config["beta_2"]),
                                        weight_decay=optim_config["weight_decay"])
+
+    def get_fixed_representation(self, state_a, agent, h_a, env):
+        no_info = -1 * torch.ones(self.representation_size).to(self.device)
+        qa_hist = []
+
+        for i in range(self.history_len):
+            h_a, dist_a = self.actor(torch.cat([state_a, no_info]), h_a)
+            action_b, dist_b = agent.select_action(env)
+            action_a = torch.multinomial(dist_a, 1)
+            
+            obs, r, _, _ = self.action_model.step([action_a, action_b])
+            obs_a, obs_b = obs
+
+            state_a = obs_a.flatten()
+            
+            qa_hist.append(torch.cat([obs_a.flatten(), dist_b.flatten()]))
+
+        qa_hist = torch.stack(qa_hist).reshape(1, self.history_len, -1)
+        agent_r = self.qa_module(qa_hist)
+        return agent_r
 
     def get_agent_representation(self, state_a, state_b, agent, h_a, h_b):
         no_info = -1 * torch.ones(self.representation_size).to(self.device)

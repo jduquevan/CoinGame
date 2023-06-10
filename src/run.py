@@ -62,8 +62,8 @@ def main(args: DictConfig):
                        action_models=action_models_2,
                        qa_module=agent_1.qa_module)
     
-    always_cooperate = AlwaysCooperateAgent(False, device=device)
-    always_defect = AlwaysDefectAgent(False, device=device)
+    always_cooperate = AlwaysCooperateAgent(False, device=device, n_actions=n_actions)
+    always_defect = AlwaysDefectAgent(False, device=device, n_actions=n_actions)
 
     run_vip(env=env,
             eval_env=eval_env,

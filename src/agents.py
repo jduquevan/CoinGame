@@ -24,6 +24,28 @@ class BaseAgent():
         
         self.obs_size = reduce(lambda a, b: a * b, self.obs_shape)
 
+class AlwaysCooperateAgent():
+    def __init__(self, is_p_1, device):
+        self.cum_steps = 0
+        self.device = device
+        self.is_p_1 = torch.tensor(is_p_1).to(self.device)
+
+    def select_action(self, env):
+        action = env.get_coop_action(self.is_p_1)
+        dist = torch.nn.functional.one_hot(action)
+        return action, dist
+
+class AlwaysDefectAgent():
+    def __init__(self, is_p_1, device):
+        self.cum_steps = 0
+        self.device = device
+        self.is_p_1 = torch.tensor(is_p_1).to(self.device)
+
+    def select_action(self, env):
+        action = env.get_moves_shortest_path_to_coin(self.is_p_1)
+        dist = torch.nn.functional.one_hot(action)
+        return action, dist
+
 class VIPAgent(BaseAgent):
     def __init__(self,
                  config,

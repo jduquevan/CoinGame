@@ -53,13 +53,13 @@ class WandbLogger():
         avg_2 = sum(self.avg_reward_2)/len(self.avg_reward_2)
 
         if d_score_1:
-            self.d_score_1 = d_score_1
+            d_score_1 = d_score_1.detach()
         if d_score_2:
-            self.d_score_2 = d_score_2
+            d_score_2 = d_score_2.detach()
         if c_score_1:
-            self.c_score_1 = c_score_1
+            c_score_1 = c_score_1.detach()
         if c_score_2:
-            self.c_score_2 = c_score_2
+            c_score_2 = c_score_2.detach()
         
         if adv_1 != None:
             self.adversity_1.append(adv_1)
@@ -116,10 +116,10 @@ class WandbLogger():
         wandb_info['total_avg_reward'] = (avg_1 + avg_2)/2
         wandb_info['pg_loss_1'] = pg_loss_1
         wandb_info['pg_loss_2'] = pg_loss_2
-        wandb_info['d_score_1'] = d_score_1
-        wandb_info['d_score_2'] = d_score_2
-        wandb_info['c_score_1'] = c_score_1
-        wandb_info['c_score_2'] = c_score_2
+        wandb_info['defect_score_1'] = d_score_1
+        wandb_info['defect_score_2'] = d_score_2
+        wandb_info['coop_score_1'] = c_score_1
+        wandb_info['coop_score_2'] = c_score_2
         wandb_info['kl_1'] = kl_1
         wandb_info['kl_2'] = kl_2
         wandb_info['adversity_1'] = adv_1

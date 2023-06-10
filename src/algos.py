@@ -44,11 +44,30 @@ def get_metrics(env):
         em_2 = 0 if  env.blue_takes_blue.detach() else 1
     return adv_1, adv_2, em_1, em_2
 
-def evaluate_agents(agent_1, agent_2, evaluation_steps, eval_env, env_type, device):
-    pass
-    
-def evaluate_agent(agent, evaluation_steps, env, env_type, device, pi):
-    pass
+def evaluate_agents(agent_1, agent_2, a_c, a_d, evaluation_steps, eval_env):
+    c_1 = evaluate_agent(agent_1, a_c, evaluation_steps, eval_env)
+    c_2 = evaluate_agent(agent_2, a_c, evaluation_steps, eval_env)
+    d_1 = evaluate_agent(agent_1, a_d, evaluation_steps, eval_env)
+    d_2 = evaluate_agent(agent_2, a_d, evaluation_steps, eval_env)
+    return c_1, c_2, d_1, d_2
+
+def evaluate_agent(agent, fixed_agent, evaluation_steps, env):
+    obs_a, obs_b, h_a, h_b = agent.transition
+    no_info = -1 * torch.ones(agent.representation_size).to(agent.device)
+    rewards = []
+
+    for i in range(evaluation_steps):
+        h_a, dist_a = agent.actor(torch.cat([obs_a.flatten(), no_info]), h_a)
+        action_a = torch.multinomial(dist_a, 1)
+        action_b, dist_a = fixed_agent.select_action(env)
+
+        obs, r, _, _ = env.step([action_a, action_b])
+        obs_a, obs_b = obs
+        r1, r2 = r
+        rewards.append(r1)
+
+    reward = torch.mean(torch.stack(rewards))
+    return reward
 
 def run_vip(env,
             eval_env,
@@ -63,12 +82,16 @@ def run_vip(env,
             evaluation_steps=10,
             grad_max_norm=1,
             kl_weight=1,
-            sp_weight=1):
+            sp_weight=1,
+            always_cooperate=None,
+            always_defect=None):
 
     torch.backends.cudnn.benchmark = True
     logger = WandbLogger(device, reward_window)
     steps_reset = agent_1.rollout_len
     exploit_weight = 1
+    c_1, c_2, d_1, d_2 = None, None, None, None
+
     for i_episode in range(num_episodes):
         obs, _ = env.reset()
         obs_1 = obs
@@ -117,7 +140,14 @@ def run_vip(env,
                              loss_2,
                              t)
 
-            d_1, c_1, d_2, c_2 = None, None, None, None
+            if t % evaluate_every == 0:
+                eval_env.clone_env(env)
+                c_1, c_2, d_1, d_2 = evaluate_agents(agent_1, 
+                                                     agent_2, 
+                                                     always_cooperate,
+                                                     always_defect,
+                                                     evaluation_steps, 
+                                                     eval_env)
 
             logger.log_wandb_info(agent_1,
                                   agent_2,

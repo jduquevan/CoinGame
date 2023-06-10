@@ -7,7 +7,7 @@ import numpy as np
 
 from omegaconf import DictConfig, OmegaConf
 
-from .agents import VIPAgent
+from .agents import VIPAgent, AlwaysCooperateAgent, AlwaysDefectAgent
 from .algos import run_vip
 from .coin_game import OGCoinGameGPU
 
@@ -31,6 +31,8 @@ def main(args: DictConfig):
     sp_weight = config["sp_weight"]
     kl_weight = config["kl_weight"]
     batch_size = config["vip_agent"]["batch_size"]
+    evaluate_every = config["evaluate_every"]
+    evaluation_steps = config["evaluation_steps"]
 
     env = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
     eval_env = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
@@ -59,6 +61,9 @@ def main(args: DictConfig):
                        action_model=action_model_2,
                        action_models=action_models_2,
                        qa_module=agent_1.qa_module)
+    
+    always_cooperate = AlwaysCooperateAgent(False, device=device)
+    always_defect = AlwaysDefectAgent(False, device=device)
 
     run_vip(env=env,
             eval_env=eval_env,
@@ -69,8 +74,11 @@ def main(args: DictConfig):
             device=device,
             num_episodes=config["num_episodes"],
             n_actions=n_actions,
+            evaluate_every=evaluate_every,
             kl_weight=kl_weight,
-            sp_weight=sp_weight)
+            sp_weight=sp_weight,
+            always_cooperate=always_cooperate,
+            always_defect=always_defect)
         
 
 if __name__ == "__main__":

@@ -275,8 +275,8 @@ class OGCoinGameGPU:
     def get_coop_action(self, red_agent_perspective=True):
         # move toward coin if same colour, away if opposite colour
         # An agent that always does this is considered to 'always cooperate'
-        moves_towards_coin = self.get_moves_shortest_path_to_coin(red_agent_perspective=red_agent_perspective)
-        moves_away_from_coin = self.get_moves_away_from_coin(moves_towards_coin)
+        moves_towards_coin = self.get_moves_shortest_path_to_coin(red_agent_perspective=red_agent_perspective).to(self.device)
+        moves_away_from_coin = self.get_moves_away_from_coin(moves_towards_coin).to(self.device)
         coop_moves = torch.zeros_like(moves_towards_coin) - 1
         if red_agent_perspective:
             is_my_coin = self.red_coin

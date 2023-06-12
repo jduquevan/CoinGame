@@ -33,6 +33,7 @@ def main(args: DictConfig):
     batch_size = config["vip_agent"]["batch_size"]
     evaluate_every = config["evaluate_every"]
     evaluation_steps = config["evaluation_steps"]
+    greedy_p = config["greedy_p"]
 
     env = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
     eval_env = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
@@ -78,7 +79,8 @@ def main(args: DictConfig):
             kl_weight=kl_weight,
             sp_weight=sp_weight,
             always_cooperate=always_cooperate,
-            always_defect=always_defect)
+            always_defect=always_defect,
+            greedy_p=greedy_p)
         
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import hydra
+import numpy as np
 import random
 import torch
 import wandb
@@ -85,7 +86,8 @@ def run_vip(env,
             kl_weight=1,
             sp_weight=1,
             always_cooperate=None,
-            always_defect=None):
+            always_defect=None,
+            greedy_p=0.5):
 
     torch.backends.cudnn.benchmark = True
     logger = WandbLogger(device, reward_window)
@@ -122,8 +124,10 @@ def run_vip(env,
             agent_1.model.clone_env(env)
             agent_2.model.clone_env(env)
 
-            pg_loss_1 = agent_1.compute_pg_loss(agent_2, agent_t=1)
-            pg_loss_2 = agent_2.compute_pg_loss(agent_1, agent_t=2)
+            greedy = np.random.binomial(1, p=greedy_p)
+
+            pg_loss_1 = agent_1.compute_pg_loss(agent_2, agent_t=1, greedy=greedy)
+            pg_loss_2 = agent_2.compute_pg_loss(agent_1, agent_t=2, greedy=greedy)
 
             kl_1 = agent_1.compute_kl_divergence(state_1, rep_1, h_1_cond)
             kl_2 = agent_2.compute_kl_divergence(state_2, rep_2, h_2_cond)

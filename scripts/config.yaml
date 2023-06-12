@@ -11,12 +11,13 @@ kl_weight: 0
 grad_max_norm: 1
 evaluate_every: 5
 evaluation_steps: 10
+greedy_p: 0.9
 env:
   max_steps: 50
   split_coins: False
   grid_size: 3
 base_agent:
-  gamma: 0.999
+  gamma: 0.95
   opt_type: "eg"
 vip_agent:
   optim_config:

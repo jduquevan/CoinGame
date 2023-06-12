@@ -214,7 +214,7 @@ class VIPAgent(BaseAgent):
         max_ent = torch.log(torch.ones(1)*self.n_actions).to(self.device)
         return ent/max_ent
 
-    def compute_pg_loss(self, agent, agent_t=1):
+    def compute_pg_loss(self, agent, agent_t=1, greedy=False):
         self.cum_steps = self.cum_steps + 1
         steps = self.cum_steps
 
@@ -256,6 +256,9 @@ class VIPAgent(BaseAgent):
             a_t_probs = dists_a.gather(1, actions_a.reshape(-1, 1)).reshape(self.batch_size)
             b_t_probs = dists_b.gather(1, actions_b.reshape(-1, 1)).reshape(self.batch_size)
 
+            if greedy:
+                b_t_probs = b_t_probs.detach()
+
             log_probs_a.append(torch.log(a_t_probs))
             log_probs_b.append(torch.log(b_t_probs))
             
@@ -268,12 +271,12 @@ class VIPAgent(BaseAgent):
                 obs_b, obs_a = obs
                 r2, r1 = r
 
-            # r1_reg = r1 - self.entropy_weight * torch.log(a_t_probs)
+            r1_reg = r1 - self.entropy_weight * torch.log(a_t_probs)
 
             obs_a = obs_a.reshape((self.batch_size, -1))
             obs_b = obs_b.reshape((self.batch_size, -1))
             
-            t_rewards.append(r1)
+            t_rewards.append(r1_reg)
             
             steps = steps + 1
         gammas = torch.tensor(self.gamma).repeat(self.batch_size, self.rollout_len - 1).to(self.device)
@@ -282,7 +285,6 @@ class VIPAgent(BaseAgent):
         rewards_t = torch.permute(torch.stack(t_rewards), (1, 0))
         returns = torch.sum(rewards_t*gammas, dim=1)
         log_probs_c = torch.permute(torch.stack(log_probs_a) + torch.stack(log_probs_b), (1, 0))
-        # log_probs_d = torch.permute(torch.stack(log_probs_a) + torch.stack(log_probs_b).detach(), (1, 0))
         sum_log_probs = torch.sum(log_probs_c, dim=1)
         pg_loss = torch.mean(returns * sum_log_probs)
 

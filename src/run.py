@@ -35,13 +35,11 @@ def main(args: DictConfig):
     evaluation_steps = config["evaluation_steps"]
     greedy_p = config["greedy_p"]
 
-    env = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
-    eval_env = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
+    env = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
+    eval_env = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
     model_1 = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
-    action_model_1 = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
     action_models_1 = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
     model_2 = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
-    action_model_2 = OGCoinGameGPU(**config["env"], batch_size=1, device=device)
     action_models_2 = OGCoinGameGPU(**config["env"], batch_size=batch_size, device=device)
     obs, _ = env.reset()
     
@@ -49,17 +47,15 @@ def main(args: DictConfig):
                        **config["vip_agent"],
                        device=device,
                        n_actions=n_actions,
-                       obs_shape=obs.shape,
+                       obs_shape=obs[0].shape,
                        model=model_1,
-                       action_model=action_model_1,
                        action_models=action_models_1)
     agent_2 = VIPAgent(config["base_agent"],
                        **config["vip_agent"],
                        device=device, 
                        n_actions=n_actions,
-                       obs_shape=obs.shape,
+                       obs_shape=obs[0].shape,
                        model=model_2,
-                       action_model=action_model_2,
                        action_models=action_models_2,
                        qa_module=agent_1.qa_module)
     
@@ -80,8 +76,8 @@ def main(args: DictConfig):
             sp_weight=sp_weight,
             always_cooperate=always_cooperate,
             always_defect=always_defect,
-            greedy_p=greedy_p)
-        
+            greedy_p=greedy_p,
+            batch_size=batch_size)
 
 if __name__ == "__main__":
     main()

@@ -41,7 +41,10 @@ class WandbLogger():
                        em_1=None,
                        em_2=None,
                        ent_1=None,
-                       ent_2=None):
+                       ent_2=None,
+                       t_r1=None,
+                       t_r2=None):
+                       
         self.cum_steps = self.cum_steps + 1
         self.avg_reward_1.insert(0, r1)
         self.avg_reward_2.insert(0, r2)
@@ -128,5 +131,7 @@ class WandbLogger():
         wandb_info['easy_misses_2'] = em_2
         wandb_info['entropy_1'] = ent_1
         wandb_info['entropy_2'] = ent_2
+        wandb_info['training_return_1'] = t_r1
+        wandb_info['training_return_2'] = t_r2
 
         wandb.log(wandb_info)

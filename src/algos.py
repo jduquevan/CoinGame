@@ -35,39 +35,51 @@ def optimize_pg_loss(opt_type, opt_1, opt_2, loss_1, loss_2, t):
 
 def get_metrics(env):
     adv_1, adv_2, em_1, em_2 = None, None, None, None
-    if env.red_can_blue.detach():
-        adv_1 = 1 if env.red_takes_blue.detach() else 0
-    if env.blue_can_red.detach():
-        adv_2 = 1 if env.blue_takes_red.detach() else 0
-    if env.red_can_red.detach():
-        em_1 = 0 if  env.red_takes_red.detach() else 1
-    if env.blue_can_blue.detach():
-        em_2 = 0 if  env.blue_takes_blue.detach() else 1
+
+    adv_1 = (torch.sum(torch.logical_and(env.red_can_blue, env.red_takes_blue))
+             /torch.sum(env.red_can_blue)).detach()
+    adv_2 = (torch.sum(torch.logical_and(env.blue_can_red, env.blue_takes_red))
+             /torch.sum(env.blue_can_red)).detach()
+    em_1 = torch.sum(env.red_can_red) - torch.sum(torch.logical_and(env.red_can_red, env.red_takes_red))
+    em_1 = (em_1/torch.sum(env.red_can_red)).detach()
+    em_2 = torch.sum(env.blue_can_blue) - torch.sum(torch.logical_and(env.blue_can_blue, env.blue_takes_blue))
+    em_2 = (em_2/torch.sum(env.blue_can_blue)).detach()
+
     return adv_1, adv_2, em_1, em_2
 
-def evaluate_agents(agent_1, agent_2, a_c, a_d, evaluation_steps, eval_env):
-    c_1 = evaluate_agent(agent_1, a_c, evaluation_steps, eval_env)
-    c_2 = evaluate_agent(agent_2, a_c, evaluation_steps, eval_env)
-    d_1 = evaluate_agent(agent_1, a_d, evaluation_steps, eval_env)
-    d_2 = evaluate_agent(agent_2, a_d, evaluation_steps, eval_env)
+def evaluate_agents(agent_1, agent_2, a_c, a_d, evaluation_steps, eval_env, batch_size):
+    agent_1.eval()
+    agent_2.eval()
+    c_1 = evaluate_agent(agent_1, a_c, evaluation_steps, eval_env, batch_size)
+    c_2 = evaluate_agent(agent_2, a_c, evaluation_steps, eval_env, batch_size)
+    d_1 = evaluate_agent(agent_1, a_d, evaluation_steps, eval_env, batch_size)
+    d_2 = evaluate_agent(agent_2, a_d, evaluation_steps, eval_env, batch_size)
+    agent_1.train()
+    agent_2.train()
     return c_1, c_2, d_1, d_2
 
-def evaluate_agent(agent, fixed_agent, evaluation_steps, env):
-    obs_a, obs_b, h_a, h_b = agent.transition
-    no_info = -1 * torch.ones(agent.representation_size).to(agent.device)
+def evaluate_agent(agent, fixed_agent, evaluation_steps, env, batch_size):
+    h_a = None
     rewards = []
-    agent.action_model.clone_env(env)
+    no_info = -1 * torch.ones(batch_size, agent.representation_size).to(agent.device)
+    obs, _ = env.reset()
+    obs_a = obs.reshape(batch_size, -1)
+    agent.action_models.clone_env_batch(env)
     for i in range(evaluation_steps):
-        agent_r = agent.get_fixed_representation(obs_a.flatten(), fixed_agent, h_a, env)
-        h_a, dist_a = agent.actor(torch.cat([obs_a.flatten(), agent_r.flatten()]), h_a)
-        action_a = torch.multinomial(dist_a, 1)
-        action_b, dist_a = fixed_agent.select_action(env)
+        agent_r = agent.get_fixed_representations(obs_a, fixed_agent, h_a, env)
+        h_a, dist_a = agent.actor.batch_forward(torch.cat([obs_a, agent_r], dim=1), h_a)
+        h_a = torch.permute(h_a, (1, 0, 2))
+        dist_a = dist_a.reshape(batch_size, -1)
+
+        action_a = torch.multinomial(dist_a, 1).reshape(batch_size)
+        action_b, dist_b = fixed_agent.select_action(env)
 
         obs, r, _, _ = env.step([action_a, action_b])
         obs_a, obs_b = obs
+        obs_a = obs_a.reshape(batch_size, -1)
         r1, r2 = r
         rewards.append(r1)
-
+    
     reward = torch.mean(torch.stack(rewards))
     return reward
 
@@ -87,7 +99,8 @@ def run_vip(env,
             sp_weight=1,
             always_cooperate=None,
             always_defect=None,
-            greedy_p=0.5):
+            greedy_p=0.5,
+            batch_size=1):
 
     torch.backends.cudnn.benchmark = True
     logger = WandbLogger(device, reward_window)
@@ -103,41 +116,35 @@ def run_vip(env,
         for t in count():
             if t % steps_reset == 0:
                 h_1, h_2 = None, None
-            
-            state_1 = obs_1.flatten()
-            state_2 = obs_2.flatten()
-            agent_1.action_model.clone_env(env)
-            agent_2.action_model.clone_env(env)
-            
-            h_1_cond, action_1, rep_1 = agent_1.select_action(state_1, state_2, agent_2, h_1, h_2)
-            h_2_cond, action_2, rep_2 = agent_2.select_action(state_2, state_1, agent_1, h_2, h_1)
+
+            state_1 = obs_1.reshape(batch_size, -1)
+            state_2 = obs_2.reshape(batch_size, -1)
+            agent_1.action_models.clone_env_batch(env)
+            agent_2.action_models.clone_env_batch(env)
+           
+            h_1_cond, action_1, rep_1 = agent_1.select_actions(state_1, state_2, agent_2, h_1, h_2)
+            h_2_cond, action_2, rep_2 = agent_2.select_actions(state_2, state_1, agent_1, h_2, h_1)
             
             obs, r, _, _ = env.step([action_1, action_2])
             obs_1, obs_2 = obs
             r1, r2 = r
-
+            
             adv_1, adv_2, em_1, em_2 = get_metrics(env)
 
             agent_1.transition = [obs_1, obs_2, h_1_cond, h_2_cond]
             agent_2.transition = [obs_2, obs_1, h_2_cond, h_1_cond]
 
-            agent_1.model.clone_env(env)
-            agent_2.model.clone_env(env)
+            agent_1.model.clone_env_batch(env)
+            agent_2.model.clone_env_batch(env)
+            
+            pg_loss_1, t11, t12 = agent_1.compute_pg_loss(agent_2, agent_t=1)
+            pg_loss_2, t21, t22 = agent_2.compute_pg_loss(agent_1, agent_t=2)
 
-            greedy = np.random.binomial(1, p=greedy_p)
-
-            pg_loss_1 = agent_1.compute_pg_loss(agent_2, agent_t=1, greedy=greedy)
-            pg_loss_2 = agent_2.compute_pg_loss(agent_1, agent_t=2, greedy=greedy)
-
-            kl_1 = agent_1.compute_kl_divergence(state_1, rep_1, h_1_cond)
-            kl_2 = agent_2.compute_kl_divergence(state_2, rep_2, h_2_cond)
-
-            ent_1 = agent_1.compute_entropy_normalized(state_1, rep_1, h_1_cond)
-            ent_2 = agent_2.compute_entropy_normalized(state_2, rep_2, h_2_cond)
+            kl_1, kl_2, ent_1, ent_2 = None, None, None, None
 
             loss_1 = pg_loss_1 
             loss_2 = pg_loss_2
-
+            
             optimize_pg_loss(agent_1.opt_type, 
                              agent_1.optimizer, 
                              agent_2.optimizer,
@@ -146,20 +153,20 @@ def run_vip(env,
                              t)
 
             if t % evaluate_every == 0:
-                eval_env.clone_env(env)
                 c_1, c_2, d_1, d_2 = evaluate_agents(agent_1, 
                                                      agent_2, 
                                                      always_cooperate,
                                                      always_defect,
                                                      evaluation_steps, 
-                                                     eval_env)
+                                                     eval_env,
+                                                     batch_size)
 
             logger.log_wandb_info(agent_1,
                                   agent_2,
                                   action_1, 
                                   action_2, 
-                                  r1, 
-                                  r2, 
+                                  torch.mean(r1).detach(), 
+                                  torch.mean(r2).detach(), 
                                   pg_loss_1, 
                                   pg_loss_2,
                                   device,

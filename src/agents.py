@@ -65,8 +65,8 @@ class VIPAgent(BaseAgent):
                  n_actions,
                  obs_shape,
                  model,
-                 action_model,
                  action_models,
+                 action_model=None,
                  qa_module=None):
         BaseAgent.__init__(self,
                            **config, 
@@ -124,10 +124,17 @@ class VIPAgent(BaseAgent):
                                        betas=(optim_config["beta_1"], optim_config["beta_2"]),
                                        weight_decay=optim_config["weight_decay"])
 
+    def eval(self):
+        self.qa_module.eval()
+        self.actor.eval()
+    
+    def train(self):
+        self.qa_module.train()
+        self.actor.train()
+
     def get_fixed_representation(self, state_a, agent, h_a, env):
         no_info = -1 * torch.ones(self.representation_size).to(self.device)
         qa_hist = []
-
         for i in range(self.history_len):
             h_a, dist_a = self.actor(torch.cat([state_a, no_info]), h_a)
             action_b, dist_b = agent.select_action(env)
@@ -135,12 +142,31 @@ class VIPAgent(BaseAgent):
             
             obs, r, _, _ = self.action_model.step([action_a, action_b])
             obs_a, obs_b = obs
-
-            state_a = obs_a.flatten()
             
             qa_hist.append(torch.cat([obs_a.flatten(), dist_b.flatten()]))
 
         qa_hist = torch.stack(qa_hist).reshape(1, self.history_len, -1)
+        agent_r = self.qa_module(qa_hist)
+        return agent_r
+
+    def get_fixed_representations(self, states_a, agent, h_a, env):
+        no_info = -1 * torch.ones(self.batch_size, self.representation_size).to(self.device)
+        qa_hist = []
+        for i in range(self.history_len):
+            h_a, dist_a = self.actor.batch_forward(torch.cat([states_a, no_info], dim=1), h_a)
+            h_a = torch.permute(h_a, (1, 0, 2))
+            dist_a = dist_a.reshape(self.batch_size, -1)
+
+            action_b, dist_b = agent.select_action(env)
+            action_a = torch.multinomial(dist_a, 1).reshape(self.batch_size)
+            
+            obs, r, _, _ = self.action_models.step([action_a, action_b])
+            obs_a, obs_b = obs
+            obs_a = obs_a.reshape(self.batch_size, -1)
+            
+            qa_hist.append(torch.cat([obs_a, dist_b], dim=1))
+
+        qa_hist = torch.permute(torch.stack(qa_hist), (1, 0, 2))
         agent_r = self.qa_module(qa_hist)
         return agent_r
 
@@ -201,6 +227,14 @@ class VIPAgent(BaseAgent):
         action = torch.multinomial(dist_a, 1)
         return h_a_cond, action, agent_r
     
+    def select_actions(self, states_a, states_b, agent, h_a, h_b):
+        self.steps_done += 1
+        agent_r = self.get_agent_representations(states_a, states_b, agent, h_a, h_b)
+        h_a_cond, dists_a = self.actor.batch_forward(torch.cat([states_a, agent_r.reshape(self.batch_size, -1)], dim=1), h_a)
+        actions = torch.multinomial(dists_a.reshape(self.batch_size, -1), 1).reshape(self.batch_size)
+        h_a_cond = torch.permute(h_a_cond, (1, 0, 2))
+        return h_a_cond, actions, agent_r
+    
     def compute_kl_divergence(self, state_a, agent_r, h_a):
         no_info = -1*torch.ones(self.representation_size).to(self.device)
         _, pi_info = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
@@ -220,24 +254,17 @@ class VIPAgent(BaseAgent):
 
         # Parallel Monte-carlo rollouts
         t_rewards = []
+        a_rewards = []
+        o_rewards = []
         log_probs_a = []
         log_probs_b = []
         obs_a, obs_b, h_a, h_b = self.transition
 
-        obs_a = obs_a.repeat((self.batch_size, 1, 1, 1)).reshape((self.batch_size,-1))
-        obs_b = obs_b.repeat((self.batch_size, 1, 1, 1)).reshape((self.batch_size,-1))
-
-        h_a = h_a.repeat((self.batch_size, 1, 1, 1)).reshape((self.batch_size, 1,-1))
-        h_a = torch.permute(h_a, (1, 0, 2))
-
-        h_b = h_b.repeat((self.batch_size, 1, 1, 1)).reshape((self.batch_size, 1,-1))
-        h_b = torch.permute(h_b, (1, 0, 2))
-
         for i in range(self.rollout_len):
             self.action_models.clone_env_batch(self.model)
 
-            states_a = obs_a
-            states_b = obs_b
+            states_a = obs_a.reshape((self.batch_size, -1))
+            states_b = obs_b.reshape((self.batch_size, -1))
             
             reps_a = self.get_agent_representations(states_a, states_b, agent, h_a, h_b)
             reps_b = self.get_agent_representations(states_b, states_a, self, h_b, h_a)
@@ -277,6 +304,8 @@ class VIPAgent(BaseAgent):
             obs_b = obs_b.reshape((self.batch_size, -1))
             
             t_rewards.append(r1_reg)
+            a_rewards.append(r1)
+            o_rewards.append(r2)
             
             steps = steps + 1
         gammas = torch.tensor(self.gamma).repeat(self.batch_size, self.rollout_len - 1).to(self.device)
@@ -288,4 +317,7 @@ class VIPAgent(BaseAgent):
         sum_log_probs = torch.sum(log_probs_c, dim=1)
         pg_loss = torch.mean(returns * sum_log_probs)
 
-        return pg_loss
+        train_r1 = torch.mean(torch.stack(a_rewards)).detach()
+        train_r2 = torch.mean(torch.stack(o_rewards)).detach()
+
+        return pg_loss, train_r1, train_r2

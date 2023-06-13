@@ -1,6 +1,6 @@
 #!/bin/bash
 SEEDS=(1)
-LRS=(0.003)
+LRS=(0.005)
 KLS=(0)
 
 for lr in ${LRS[@]}; do

@@ -1,6 +1,9 @@
 import torch
 import wandb
 
+def magic_box(tau):
+    return torch.exp(tau - tau.detach())
+
 class WandbLogger():
     def __init__(self, device, reward_window):
         self.device = device

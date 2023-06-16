@@ -27,7 +27,7 @@ vip_agent:
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
-  batch_size: 5600
+  batch_size: 2800
   rollout_len: 50
   representation_size: 4
   hidden_size: 64

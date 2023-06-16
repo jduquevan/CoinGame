@@ -22,7 +22,7 @@ def main(args: DictConfig):
     
     seed_all(config["seed"])
 
-    wandb.init(config=config, dir="/network/scratch/j/juan.duque/wandb/", project="Co-games", reinit=True, anonymous="allow")
+    wandb.init(config=config, dir=config["wandb_dir"], project="Co-games", reinit=True, anonymous="allow")
 
     n_actions = 4
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

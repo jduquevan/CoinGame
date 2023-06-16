@@ -7,6 +7,7 @@ from functools import reduce
 
 from .models import VIPActor, HistoryAggregator, RolloutBuffer
 from .optimizers import ExtraAdam
+from .utils import magic_box
 
 class BaseAgent():
     def __init__(self,
@@ -173,7 +174,7 @@ class VIPAgent(BaseAgent):
     def get_agent_representation(self, state_a, state_b, agent, h_a, h_b):
         no_info = -1 * torch.ones(self.representation_size).to(self.device)
         qa_hist = []
-
+        
         for i in range(self.history_len):
             h_a, dist_a = self.actor(torch.cat([state_a, no_info]), h_a)
             h_b, dist_b = agent.actor(torch.cat([state_b, no_info]), h_b)
@@ -195,7 +196,8 @@ class VIPAgent(BaseAgent):
     def get_agent_representations(self, states_a, states_b, agent, h_a, h_b):
         no_info = -1 * torch.ones(self.batch_size, self.representation_size).to(self.device)
         qa_hist = []
-
+        # For dice operator (stochastic differentiation)
+        log_probs_b = []
         for i in range(self.history_len):
             h_a, dist_a = self.actor.batch_forward(torch.cat([states_a, no_info], dim=1), h_a)
             h_b, dist_b = agent.actor.batch_forward(torch.cat([states_b, no_info], dim=1), h_b)
@@ -207,6 +209,9 @@ class VIPAgent(BaseAgent):
 
             actions_a = torch.multinomial(dist_a, 1).reshape(self.batch_size)
             actions_b = torch.multinomial(dist_b, 1).reshape(self.batch_size)
+
+            b_t_probs = dist_b.gather(1, actions_b.reshape(-1, 1)).reshape(self.batch_size)
+            log_probs_b.append(torch.log(b_t_probs))
             
             obs, r, _, _ = self.action_models.step([actions_a, actions_b])
             obs_a, obs_b = obs
@@ -215,9 +220,10 @@ class VIPAgent(BaseAgent):
             states_b = obs_b.reshape(self.batch_size, -1)
             
             qa_hist.append(torch.cat([obs_a.reshape(self.batch_size, -1), dist_b], dim=1))
-
         qa_hist = torch.permute(torch.stack(qa_hist), (1, 0, 2))
-        agent_r = self.qa_module(qa_hist)
+        causal_logps = torch.cumsum(torch.permute(torch.stack(log_probs_b), (1, 0)), dim=1)
+        causal_logps = causal_logps.unsqueeze(2).repeat(1, 1, qa_hist.shape[2]).reshape(self.batch_size, self.history_len, -1)
+        agent_r = self.qa_module(magic_box(causal_logps) * qa_hist)
         return agent_r
     
     def select_action(self, state_a, state_b, agent, h_a, h_b):

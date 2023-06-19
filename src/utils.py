@@ -4,6 +4,20 @@ import wandb
 def magic_box(tau):
     return torch.exp(tau - tau.detach())
 
+def get_metrics(env):
+    adv_1, adv_2, em_1, em_2 = None, None, None, None
+
+    adv_1 = (torch.sum(torch.logical_and(env.red_can_blue, env.red_takes_blue))
+             /torch.sum(env.red_can_blue)).detach()
+    adv_2 = (torch.sum(torch.logical_and(env.blue_can_red, env.blue_takes_red))
+             /torch.sum(env.blue_can_red)).detach()
+    em_1 = torch.sum(env.red_can_red) - torch.sum(torch.logical_and(env.red_can_red, env.red_takes_red))
+    em_1 = (em_1/torch.sum(env.red_can_red)).detach()
+    em_2 = torch.sum(env.blue_can_blue) - torch.sum(torch.logical_and(env.blue_can_blue, env.blue_takes_blue))
+    em_2 = (em_2/torch.sum(env.blue_can_blue)).detach()
+
+    return adv_1, adv_2, em_1, em_2
+
 class WandbLogger():
     def __init__(self, device, reward_window):
         self.device = device

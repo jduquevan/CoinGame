@@ -9,7 +9,7 @@ from multiprocessing import Pool
 from typing import Any, Dict, Optional
 
 from .optimizers import ExtraAdam
-from .utils import WandbLogger
+from .utils import WandbLogger, get_metrics
 
 def optimize_pg_loss(opt_type, opt_1, opt_2, loss_1, loss_2, t):
     if opt_type == "sgd" or opt_type == "adam":
@@ -32,20 +32,6 @@ def optimize_pg_loss(opt_type, opt_1, opt_2, loss_1, loss_2, t):
         else:
             opt_1.step()
             opt_2.step()
-
-def get_metrics(env):
-    adv_1, adv_2, em_1, em_2 = None, None, None, None
-
-    adv_1 = (torch.sum(torch.logical_and(env.red_can_blue, env.red_takes_blue))
-             /torch.sum(env.red_can_blue)).detach()
-    adv_2 = (torch.sum(torch.logical_and(env.blue_can_red, env.blue_takes_red))
-             /torch.sum(env.blue_can_red)).detach()
-    em_1 = torch.sum(env.red_can_red) - torch.sum(torch.logical_and(env.red_can_red, env.red_takes_red))
-    em_1 = (em_1/torch.sum(env.red_can_red)).detach()
-    em_2 = torch.sum(env.blue_can_blue) - torch.sum(torch.logical_and(env.blue_can_blue, env.blue_takes_blue))
-    em_2 = (em_2/torch.sum(env.blue_can_blue)).detach()
-
-    return adv_1, adv_2, em_1, em_2
 
 def evaluate_agents(agent_1, agent_2, a_c, a_d, evaluation_steps, eval_env, batch_size):
     agent_1.eval()
@@ -124,6 +110,9 @@ def run_vip(env,
            
             h_1_cond, action_1, rep_1 = agent_1.select_actions(state_1, state_2, agent_2, h_1, h_2)
             h_2_cond, action_2, rep_2 = agent_2.select_actions(state_2, state_1, agent_1, h_2, h_1)
+
+            kl_1 = agent_1.compute_kl_divergences(state_1, rep_1, h_1_cond)
+            kl_2 = agent_2.compute_kl_divergences(state_2, rep_2, h_2_cond)
             
             obs, r, _, _ = env.step([action_1, action_2])
             obs_1, obs_2 = obs
@@ -140,7 +129,7 @@ def run_vip(env,
             pg_loss_1, t11, t12 = agent_1.compute_pg_loss(agent_2, agent_t=1)
             pg_loss_2, t21, t22 = agent_2.compute_pg_loss(agent_1, agent_t=2)
 
-            kl_1, kl_2, ent_1, ent_2 = None, None, None, None
+            ent_1, ent_2 = None, None
 
             loss_1 = pg_loss_1 
             loss_2 = pg_loss_2

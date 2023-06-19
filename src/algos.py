@@ -125,9 +125,12 @@ def run_vip(env,
 
             agent_1.model.clone_env_batch(env)
             agent_2.model.clone_env_batch(env)
+
+            greedy_1 = np.random.binomial(1, greedy_p)
+            greedy_2 = np.random.binomial(1, greedy_p)
             
-            pg_loss_1, t11, t12 = agent_1.compute_pg_loss(agent_2, agent_t=1)
-            pg_loss_2, t21, t22 = agent_2.compute_pg_loss(agent_1, agent_t=2)
+            pg_loss_1, t11, t12 = agent_1.compute_pg_loss(agent_2, agent_t=1, greedy=greedy_1)
+            pg_loss_2, t21, t22 = agent_2.compute_pg_loss(agent_1, agent_t=2, greedy=greedy_2)
 
             ent_1, ent_2 = None, None
 

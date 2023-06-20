@@ -134,8 +134,8 @@ def run_vip(env,
 
             ent_1, ent_2 = None, None
 
-            loss_1 = pg_loss_1 
-            loss_2 = pg_loss_2
+            loss_1 = pg_loss_1 - kl_weight * kl_1
+            loss_2 = pg_loss_2 - kl_weight * kl_2
             
             optimize_pg_loss(agent_1.opt_type, 
                              agent_1.optimizer, 

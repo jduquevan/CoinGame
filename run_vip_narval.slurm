@@ -17,7 +17,7 @@
 #SBATCH --account=rrg-bengioy-ad
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=40G
-#SBATCH --time=0-11:59:00   
+#SBATCH --time=0-23:59:00   
 #SBATCH --gres=gpu:1 
 
 # Turn on mail notification. There are many possible self-explaining values:
@@ -39,7 +39,7 @@ module load cuda/11
 export WANDB_MODE=offline
 
 python -m src.run seed=${1}  vip_agent.optim_config.lr=${2} greedy_p=${3} \
-    vip_agent.entropy_weight=${4} kl_weight=${5}\
+    vip_agent.entropy_weight=${4} kl_weight=${5} vip_agent.history_len=${6}\
     hydra.run.dir="/scratch/jduque/hydra" wandb_dir="/scratch/jduque/wandb"
 
 #python -m src.run seed=1 vip_agent.optim_config.lr=0.005 hydra.run.dir="/scratch/jduque/hydra" wandb_dir="/scratch/jduque/wandb"

@@ -36,15 +36,17 @@ def optimize_pg_loss(opt_type, opt_1, opt_2, loss_1, loss_2, t):
 def evaluate_agents(agent_1, agent_2, a_c, a_d, evaluation_steps, eval_env, batch_size):
     agent_1.eval()
     agent_2.eval()
-    c_1 = evaluate_agent(agent_1, a_c, evaluation_steps, eval_env, batch_size)
-    c_2 = evaluate_agent(agent_2, a_c, evaluation_steps, eval_env, batch_size)
-    d_1 = evaluate_agent(agent_1, a_d, evaluation_steps, eval_env, batch_size)
-    d_2 = evaluate_agent(agent_2, a_d, evaluation_steps, eval_env, batch_size)
+    c_1 = evaluate_agent_fixed(agent_1, a_c, evaluation_steps, eval_env, batch_size)
+    c_2 = evaluate_agent_fixed(agent_2, a_c, evaluation_steps, eval_env, batch_size)
+    d_1 = evaluate_agent_fixed(agent_1, a_d, evaluation_steps, eval_env, batch_size)
+    d_2 = evaluate_agent_fixed(agent_2, a_d, evaluation_steps, eval_env, batch_size)
+    a_1 = evaluate_agent(agent_1, evaluation_steps, eval_env, batch_size)
+    a_2 = evaluate_agent(agent_2, evaluation_steps, eval_env, batch_size)
     agent_1.train()
     agent_2.train()
-    return c_1, c_2, d_1, d_2
+    return c_1, c_2, d_1, d_2, a_1, a_2
 
-def evaluate_agent(agent, fixed_agent, evaluation_steps, env, batch_size):
+def evaluate_agent_fixed(agent, fixed_agent, evaluation_steps, env, batch_size):
     h_a = None
     rewards = []
     no_info = -1 * torch.ones(batch_size, agent.representation_size).to(agent.device)
@@ -63,6 +65,40 @@ def evaluate_agent(agent, fixed_agent, evaluation_steps, env, batch_size):
         obs, r, _, _ = env.step([action_a, action_b])
         obs_a, obs_b = obs
         obs_a = obs_a.reshape(batch_size, -1)
+        r1, r2 = r
+        rewards.append(r1)
+    
+    reward = torch.mean(torch.stack(rewards))
+    return reward
+
+def evaluate_agent(agent, evaluation_steps, env, batch_size):
+    h_a = None
+    h_b = None
+    rewards = []
+    no_info = -1 * torch.ones(batch_size, agent.representation_size).to(agent.device)
+    obs, _ = env.reset()
+    obs_a = obs.reshape(batch_size, -1)
+    obs_b = torch.clone(obs[:, torch.tensor([1, 0, 3, 2])]).reshape(batch_size, -1)
+    agent.action_models.clone_env_batch(env)
+    for i in range(evaluation_steps):
+        reps_a = agent.get_agent_representations(obs_a, obs_b, agent, h_a, h_b)
+        reps_b = agent.get_agent_representations(obs_b, obs_a, agent, h_b, h_a)
+
+        h_a, dist_a = agent.actor.batch_forward(torch.cat([obs_a, reps_a], dim=1), h_a)
+        h_b, dist_b = agent.actor.batch_forward(torch.cat([obs_b, reps_b], dim=1), h_b)
+
+        h_a = torch.permute(h_a, (1, 0, 2))
+        h_b = torch.permute(h_b, (1, 0, 2))
+        dist_a = dist_a.reshape(batch_size, -1)
+        dist_b = dist_b.reshape(batch_size, -1)
+
+        action_a = torch.multinomial(dist_a, 1).reshape(batch_size)
+        action_b = torch.multinomial(dist_b, 1).reshape(batch_size)
+
+        obs, r, _, _ = env.step([action_a, action_b])
+        obs_a, obs_b = obs
+        obs_a = obs_a.reshape(batch_size, -1)
+        obs_b = obs_b.reshape(batch_size, -1)
         r1, r2 = r
         rewards.append(r1)
     
@@ -136,7 +172,7 @@ def run_vip(env,
 
             loss_1 = pg_loss_1 - kl_weight * kl_1
             loss_2 = pg_loss_2 - kl_weight * kl_2
-            
+    
             optimize_pg_loss(agent_1.opt_type, 
                              agent_1.optimizer, 
                              agent_2.optimizer,
@@ -145,13 +181,13 @@ def run_vip(env,
                              t)
 
             if t % evaluate_every == 0:
-                c_1, c_2, d_1, d_2 = evaluate_agents(agent_1, 
-                                                     agent_2, 
-                                                     always_cooperate,
-                                                     always_defect,
-                                                     evaluation_steps, 
-                                                     eval_env,
-                                                     batch_size)
+                c_1, c_2, d_1, d_2, a_1, a_2 = evaluate_agents(agent_1, 
+                                                               agent_2, 
+                                                               always_cooperate,
+                                                               always_defect,
+                                                               evaluation_steps, 
+                                                               eval_env,
+                                                               batch_size)
 
             logger.log_wandb_info(agent_1,
                                   agent_2,
@@ -174,4 +210,6 @@ def run_vip(env,
                                   em_1=em_1,
                                   em_2=em_2,
                                   ent_1=ent_1,
-                                  ent_2=ent_2)
+                                  ent_2=ent_2,
+                                  a_1=a_1,
+                                  a_2=a_2)

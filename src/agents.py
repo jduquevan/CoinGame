@@ -220,6 +220,7 @@ class VIPAgent(BaseAgent):
             states_b = obs_b.reshape(self.batch_size, -1)
             
             qa_hist.append(torch.cat([obs_a.reshape(self.batch_size, -1), dist_b], dim=1))
+
         qa_hist = torch.permute(torch.stack(qa_hist), (1, 0, 2))
         causal_logps = torch.cumsum(torch.permute(torch.stack(log_probs_b), (1, 0)), dim=1)
         causal_logps = causal_logps.unsqueeze(2).repeat(1, 1, qa_hist.shape[2]).reshape(self.batch_size, self.history_len, -1)
@@ -245,7 +246,7 @@ class VIPAgent(BaseAgent):
         no_info = -1*torch.ones(self.representation_size).to(self.device)
         _, pi_info = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
         _, pi_no_info = self.actor(torch.cat([state_a, no_info]), h_a)
-        kl = torch.sum(pi_no_info * torch.log(torch.div(pi_no_info, pi_info.detach())))
+        kl = torch.sum(pi_info.detach() * torch.log(torch.div(pi_info.detach(), pi_no_info)))
         return kl
     
     def compute_kl_divergences(self, states_a, agent_r, h_a):
@@ -254,7 +255,7 @@ class VIPAgent(BaseAgent):
         _, pi_no_info = self.actor.batch_forward(torch.cat([states_a, no_info], dim=1), h_a)
         pi_info = pi_info.reshape(self.batch_size, -1)
         pi_no_info = pi_no_info.reshape(self.batch_size, -1)
-        kl = torch.mean(torch.sum(pi_no_info * torch.log(torch.div(pi_no_info, pi_info.detach())), dim=1))
+        kl = torch.mean(torch.sum(pi_info.detach() * torch.log(torch.div(pi_info.detach(), pi_no_info)), dim=1))
         return kl
 
     def compute_entropy_normalized(self, state_a, agent_r, h_a):

@@ -62,7 +62,13 @@ class WandbLogger():
                        t_r1=None,
                        t_r2=None,
                        a_1=None,
-                       a_2=None):
+                       a_2=None,
+                       uc_1=None,
+                       uc_2=None,
+                       ud_1=None,
+                       ud_2=None,
+                       ua_1=None,
+                       ua_2=None):
                        
         self.cum_steps = self.cum_steps + 1
         self.avg_reward_1.insert(0, r1)
@@ -154,5 +160,12 @@ class WandbLogger():
         wandb_info['training_return_2'] = t_r2
         wandb_info['self_score_1'] = a_1
         wandb_info['self_score_2'] = a_2
+
+        wandb_info['unconditioned_c_score_1'] = uc_1
+        wandb_info['unconditioned_c_score_2'] = uc_2
+        wandb_info['unconditioned_d_score_1'] = ud_1
+        wandb_info['unconditioned_d_score_2'] = ud_2
+        wandb_info['unconditioned_s_score_1'] = ua_1
+        wandb_info['unconditioned_s_score_2'] = ua_2
 
         wandb.log(wandb_info)

@@ -1,9 +1,9 @@
 #!/bin/bash
-SEEDS=(1)
-LRS=(0.005)
+SEEDS=(7)
+LRS=(0.0001 0.0005)
 GPS=(0.7)
-ENTS=(0.01)
-KLS=(0.005)
+ENTS=(0.012 0.015 0.018)
+KLS=(0.05)
 HLENS=(8)
 
 for lr in ${LRS[@]}; do

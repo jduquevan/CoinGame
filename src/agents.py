@@ -62,6 +62,7 @@ class VIPAgent(BaseAgent):
                  collab_weight,
                  exploit_weight,
                  entropy_weight,
+                 rep_dropout,
                  device,
                  n_actions,
                  obs_shape,
@@ -83,6 +84,7 @@ class VIPAgent(BaseAgent):
         self.exploit_weight = exploit_weight
         self.collab_weight = collab_weight
         self.entropy_weight = entropy_weight
+        self.rep_dropout = rep_dropout
         self.n_actions = n_actions
         self.transition: list = list()
         
@@ -134,7 +136,7 @@ class VIPAgent(BaseAgent):
         self.actor.train()
 
     def get_fixed_representation(self, state_a, agent, h_a, env):
-        no_info = -1 * torch.ones(self.representation_size).to(self.device)
+        no_info = torch.zeros(self.representation_size).to(self.device)
         qa_hist = []
         for i in range(self.history_len):
             h_a, dist_a = self.actor(torch.cat([state_a, no_info]), h_a)
@@ -151,7 +153,7 @@ class VIPAgent(BaseAgent):
         return agent_r
 
     def get_fixed_representations(self, states_a, agent, h_a, env):
-        no_info = -1 * torch.ones(self.batch_size, self.representation_size).to(self.device)
+        no_info = torch.zeros(self.batch_size, self.representation_size).to(self.device)
         qa_hist = []
         for i in range(self.history_len):
             h_a, dist_a = self.actor.batch_forward(torch.cat([states_a, no_info], dim=1), h_a)
@@ -172,7 +174,7 @@ class VIPAgent(BaseAgent):
         return agent_r
 
     def get_agent_representation(self, state_a, state_b, agent, h_a, h_b):
-        no_info = -1 * torch.ones(self.representation_size).to(self.device)
+        no_info = torch.zeros(self.representation_size).to(self.device)
         qa_hist = []
         
         for i in range(self.history_len):
@@ -194,7 +196,7 @@ class VIPAgent(BaseAgent):
         return agent_r
     
     def get_agent_representations(self, states_a, states_b, agent, h_a, h_b):
-        no_info = -1 * torch.ones(self.batch_size, self.representation_size).to(self.device)
+        no_info =  torch.zeros(self.batch_size, self.representation_size).to(self.device)
         qa_hist = []
         # For dice operator (stochastic differentiation)
         log_probs_b = []
@@ -243,14 +245,14 @@ class VIPAgent(BaseAgent):
         return h_a_cond, actions, agent_r
     
     def compute_kl_divergence(self, state_a, agent_r, h_a):
-        no_info = -1*torch.ones(self.representation_size).to(self.device)
+        no_info = torch.zeros(self.representation_size).to(self.device)
         _, pi_info = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
         _, pi_no_info = self.actor(torch.cat([state_a, no_info]), h_a)
         kl = torch.sum(pi_info.detach() * torch.log(torch.div(pi_info.detach(), pi_no_info)))
         return kl
     
     def compute_kl_divergences(self, states_a, agent_r, h_a):
-        no_info = -1*torch.ones(self.batch_size, self.representation_size).to(self.device)
+        no_info = torch.zeros(self.batch_size, self.representation_size).to(self.device)
         _, pi_info = self.actor.batch_forward(torch.cat([states_a, agent_r], dim=1), h_a)
         _, pi_no_info = self.actor.batch_forward(torch.cat([states_a, no_info], dim=1), h_a)
         pi_info = pi_info.reshape(self.batch_size, -1)
@@ -276,16 +278,20 @@ class VIPAgent(BaseAgent):
         log_probs_b = []
         obs_a, obs_b, h_a, h_b = self.transition
 
+        rep_dropout = torch.tensor(self.rep_dropout).repeat(self.batch_size).to(self.device)
+
         for i in range(self.rollout_len):
             self.action_models.clone_env_batch(self.model)
 
             states_a = obs_a.reshape((self.batch_size, -1))
             states_b = obs_b.reshape((self.batch_size, -1))
+
+            reps_a_mask = torch.bernoulli(rep_dropout).unsqueeze(1).repeat(1, self.representation_size)
             
             reps_a = self.get_agent_representations(states_a, states_b, agent, h_a, h_b)
             reps_b = self.get_agent_representations(states_b, states_a, self, h_b, h_a)
 
-            h_a, dists_a = self.actor.batch_forward(torch.cat([states_a, reps_a], dim=1), h_a)
+            h_a, dists_a = self.actor.batch_forward(torch.cat([states_a, reps_a*reps_a_mask], dim=1), h_a)
             h_b, dists_b = agent.actor.batch_forward(torch.cat([states_b, reps_b], dim=1), h_b)
 
             h_a = torch.permute(h_a, (1, 0, 2))

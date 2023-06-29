@@ -35,3 +35,4 @@ vip_agent:
   collab_weight: 1
   exploit_weight: 1
   entropy_weight: 0.015
+  rep_dropout: 0.2

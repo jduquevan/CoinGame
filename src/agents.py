@@ -236,9 +236,12 @@ class VIPAgent(BaseAgent):
         action = torch.multinomial(dist_a, 1)
         return h_a_cond, action, agent_r
     
-    def select_actions(self, states_a, states_b, agent, h_a, h_b):
+    def select_actions(self, states_a, states_b, agent, h_a, h_b, conditioned=True):
         self.steps_done += 1
-        agent_r = self.get_agent_representations(states_a, states_b, agent, h_a, h_b)
+        if conditioned:
+            agent_r = self.get_agent_representations(states_a, states_b, agent, h_a, h_b)
+        else:
+            agent_r = torch.zeros(self.batch_size, self.representation_size).to(self.device)
         h_a_cond, dists_a = self.actor.batch_forward(torch.cat([states_a, agent_r.reshape(self.batch_size, -1)], dim=1), h_a)
         actions = torch.multinomial(dists_a.reshape(self.batch_size, -1), 1).reshape(self.batch_size)
         h_a_cond = torch.permute(h_a_cond, (1, 0, 2))

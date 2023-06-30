@@ -151,8 +151,8 @@ def run_vip(env,
             agent_1.action_models.clone_env_batch(env)
             agent_2.action_models.clone_env_batch(env)
            
-            h_1_cond, action_1, rep_1 = agent_1.select_actions(state_1, state_2, agent_2, h_1, h_2)
-            h_2_cond, action_2, rep_2 = agent_2.select_actions(state_2, state_1, agent_1, h_2, h_1)
+            h_1_cond, action_1, rep_1 = agent_1.select_actions(state_1, state_2, agent_2, h_1, h_2, False)
+            h_2_cond, action_2, rep_2 = agent_2.select_actions(state_2, state_1, agent_1, h_2, h_1, False)
 
             kl_1 = agent_1.compute_kl_divergences(state_1, rep_1, h_1_cond)
             kl_2 = agent_2.compute_kl_divergences(state_2, rep_2, h_2_cond)

@@ -73,9 +73,9 @@ class HistoryAggregator(nn.Module):
         self.num_layers = num_layers
 
         self.lstm = nn.LSTM(in_size, out_size, num_layers, batch_first = True)
-        self.out_layer = nn.Linear(out_size, out_size)
+        #self.out_layer = nn.Linear(16, out_size)
 
     def forward(self, x):
         self.lstm.flatten_parameters()
         x, hidden = self.lstm(x)
-        return F.relu(self.out_layer(F.relu(x[:,-1,:])))
+        return F.relu(x[:,-1,:])

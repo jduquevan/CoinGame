@@ -1,11 +1,11 @@
 #!/bin/bash
 SEEDS=(7)
 LRS=(0.0005)
-GPS=(0.5 0.6 0.7)
-ENTS=(0.015 0.05)
+GPS=(0.6 0.65 0.7)
+ENTS=(0.015 0.03)
 KLS=(0.05)
 HLENS=(8)
-RDPS=(0 0.05 0.15 0.25)
+RDPS=(0.8 0.75 0.7)
 
 for lr in ${LRS[@]}; do
     for seed in ${SEEDS[@]}; do

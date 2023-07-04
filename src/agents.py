@@ -251,8 +251,9 @@ class VIPAgent(BaseAgent):
         no_info = torch.zeros(self.representation_size).to(self.device)
         _, pi_info = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
         _, pi_no_info = self.actor(torch.cat([state_a, no_info]), h_a)
-        kl = torch.sum(pi_info.detach() * torch.log(torch.div(pi_info.detach(), pi_no_info)))
-        return kl
+        kl_1 = torch.sum(pi_info * torch.log(torch.div(pi_info, (pi_no_info+pi_info)/2)))
+        kl_2 = torch.sum(pi_no_info * torch.log(torch.div(pi_no_info, (pi_no_info+pi_info)/2)))
+        return (kl_1+kl_2)/2
     
     def compute_kl_divergences(self, states_a, agent_r, h_a):
         no_info = torch.zeros(self.batch_size, self.representation_size).to(self.device)
@@ -260,8 +261,9 @@ class VIPAgent(BaseAgent):
         _, pi_no_info = self.actor.batch_forward(torch.cat([states_a, no_info], dim=1), h_a)
         pi_info = pi_info.reshape(self.batch_size, -1)
         pi_no_info = pi_no_info.reshape(self.batch_size, -1)
-        kl = torch.mean(torch.sum(pi_info.detach() * torch.log(torch.div(pi_info.detach(), pi_no_info)), dim=1))
-        return kl
+        kl_1 = torch.mean(torch.sum(pi_info * torch.log(torch.div(pi_info, (pi_no_info+pi_info)/2)), dim=1))
+        kl_2 = torch.mean(torch.sum(pi_no_info * torch.log(torch.div(pi_no_info, (pi_no_info+pi_info)/2)), dim=1))
+        return (kl_1+kl_2)/2
 
     def compute_entropy_normalized(self, state_a, agent_r, h_a):
         _, pi = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
@@ -272,6 +274,7 @@ class VIPAgent(BaseAgent):
     def compute_pg_loss(self, agent, agent_t=1, greedy=False):
         self.cum_steps = self.cum_steps + 1
         steps = self.cum_steps
+        #import pdb; pdb.set_trace()
 
         # Parallel Monte-carlo rollouts
         t_rewards = []
@@ -290,12 +293,13 @@ class VIPAgent(BaseAgent):
             states_b = obs_b.reshape((self.batch_size, -1))
 
             reps_a_mask = torch.bernoulli(rep_dropout).unsqueeze(1).repeat(1, self.representation_size)
+            reps_b_mask = torch.bernoulli(rep_dropout).unsqueeze(1).repeat(1, self.representation_size)
             
             reps_a = self.get_agent_representations(states_a, states_b, agent, h_a, h_b)
             reps_b = self.get_agent_representations(states_b, states_a, self, h_b, h_a)
 
             h_a, dists_a = self.actor.batch_forward(torch.cat([states_a, reps_a*reps_a_mask], dim=1), h_a)
-            h_b, dists_b = agent.actor.batch_forward(torch.cat([states_b, reps_b], dim=1), h_b)
+            h_b, dists_b = agent.actor.batch_forward(torch.cat([states_b, reps_b*reps_b_mask], dim=1), h_b)
 
             h_a = torch.permute(h_a, (1, 0, 2))
             h_b = torch.permute(h_b, (1, 0, 2))

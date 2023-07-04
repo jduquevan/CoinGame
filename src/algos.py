@@ -58,7 +58,10 @@ def evaluate_agent_fixed(agent, fixed_agent, evaluation_steps, env, batch_size, 
             agent_r = agent.get_fixed_representations(obs_a, fixed_agent, h_a, env)
         else:
             agent_r = no_info
-        h_a, dist_a = agent.actor.batch_forward(torch.cat([obs_a, agent_r], dim=1), h_a)
+
+        state_a = obs_a.reshape((batch_size, -1))
+
+        h_a, dist_a = agent.actor.batch_forward(torch.cat([state_a, agent_r], dim=1), h_a)
         h_a = torch.permute(h_a, (1, 0, 2))
         dist_a = dist_a.reshape(batch_size, -1)
 
@@ -91,8 +94,11 @@ def evaluate_agent(agent, evaluation_steps, env, batch_size, conditioned=True):
             reps_a = no_info
             reps_b = no_info
 
-        h_a, dist_a = agent.actor.batch_forward(torch.cat([obs_a, reps_a], dim=1), h_a)
-        h_b, dist_b = agent.actor.batch_forward(torch.cat([obs_b, reps_b], dim=1), h_b)
+        state_a = obs_a.reshape((batch_size, -1))
+        state_b = obs_b.reshape((batch_size, -1))
+
+        h_a, dist_a = agent.actor.batch_forward(torch.cat([state_a, reps_a], dim=1), h_a)
+        h_b, dist_b = agent.actor.batch_forward(torch.cat([state_b, reps_b], dim=1), h_b)
 
         h_a = torch.permute(h_a, (1, 0, 2))
         h_b = torch.permute(h_b, (1, 0, 2))
@@ -146,16 +152,20 @@ def run_vip(env,
             if t % steps_reset == 0:
                 h_1, h_2 = None, None
 
-            state_1 = obs_1.reshape(batch_size, -1)
-            state_2 = obs_2.reshape(batch_size, -1)
+            state_1 = obs_1.reshape((batch_size, -1))
+            state_2 = obs_2.reshape((batch_size, -1))
+            
             agent_1.action_models.clone_env_batch(env)
             agent_2.action_models.clone_env_batch(env)
            
-            h_1_cond, action_1, rep_1 = agent_1.select_actions(state_1, state_2, agent_2, h_1, h_2, False)
-            h_2_cond, action_2, rep_2 = agent_2.select_actions(state_2, state_1, agent_1, h_2, h_1, False)
+            h_1, action_1, rep_1 = agent_1.select_actions(state_1, state_2, agent_2, h_1, h_2, False)
+            h_2, action_2, rep_2 = agent_2.select_actions(state_2, state_1, agent_1, h_2, h_1, False)
 
-            kl_1 = agent_1.compute_kl_divergences(state_1, rep_1, h_1_cond)
-            kl_2 = agent_2.compute_kl_divergences(state_2, rep_2, h_2_cond)
+            h_1 = torch.permute(h_1, (1, 0, 2))
+            h_2 = torch.permute(h_2, (1, 0, 2))
+
+            kl_1 = agent_1.compute_kl_divergences(state_1, rep_1, h_1)
+            kl_2 = agent_2.compute_kl_divergences(state_2, rep_2, h_2)
             
             obs, r, _, _ = env.step([action_1, action_2])
             obs_1, obs_2 = obs
@@ -163,8 +173,8 @@ def run_vip(env,
             
             adv_1, adv_2, em_1, em_2 = get_metrics(env)
 
-            agent_1.transition = [obs_1, obs_2, h_1_cond, h_2_cond]
-            agent_2.transition = [obs_2, obs_1, h_2_cond, h_1_cond]
+            agent_1.transition = [obs_1, obs_2, h_1, h_2]
+            agent_2.transition = [obs_2, obs_1, h_2, h_1]
 
             agent_1.model.clone_env_batch(env)
             agent_2.model.clone_env_batch(env)

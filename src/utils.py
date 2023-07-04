@@ -4,6 +4,10 @@ import wandb
 def magic_box(tau):
     return torch.exp(tau - tau.detach())
 
+def assert_models_are_equal():
+    # assert torch.sum(self.action_models.red_coin == self.model.red_coin).detach == batch_size
+    pass
+
 def get_metrics(env):
     adv_1, adv_2, em_1, em_2 = None, None, None, None
 

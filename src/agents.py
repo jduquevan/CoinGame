@@ -6,7 +6,7 @@ import torch.optim as optim
 from functools import reduce
 
 from .models import VIPActor, HistoryAggregator, RolloutBuffer
-from .optimizers import ExtraAdam
+from .optimizers import ExtraAdam, OptimisticAdam
 from .utils import magic_box
 
 class BaseAgent():
@@ -126,6 +126,12 @@ class VIPAgent(BaseAgent):
                                        lr=optim_config["lr"],
                                        betas=(optim_config["beta_1"], optim_config["beta_2"]),
                                        weight_decay=optim_config["weight_decay"])
+        elif self.opt_type.lower() == "om":
+            self.optimizer = OptimisticAdam(list(self.actor.parameters()) + 
+                                            list(self.qa_module.parameters()),
+                                            lr=optim_config["lr"],
+                                            betas=(optim_config["beta_1"], optim_config["beta_2"]),
+                                            weight_decay=optim_config["weight_decay"])
 
     def eval(self):
         self.qa_module.eval()
@@ -274,7 +280,6 @@ class VIPAgent(BaseAgent):
     def compute_pg_loss(self, agent, agent_t=1, greedy=False):
         self.cum_steps = self.cum_steps + 1
         steps = self.cum_steps
-        #import pdb; pdb.set_trace()
 
         # Parallel Monte-carlo rollouts
         t_rewards = []
@@ -286,6 +291,14 @@ class VIPAgent(BaseAgent):
 
         rep_dropout = torch.tensor(self.rep_dropout).repeat(self.batch_size).to(self.device)
 
+        states_a = obs_a.reshape((self.batch_size, -1))
+        states_b = obs_b.reshape((self.batch_size, -1))
+
+        reps_a = torch.mean(self.get_agent_representations(states_a, states_b, agent, h_a, h_b), dim=0)
+        reps_b = torch.mean( self.get_agent_representations(states_b, states_a, self, h_b, h_a), dim=0)
+        reps_a = reps_a.repeat(self.batch_size, 1)
+        reps_b = reps_b.repeat(self.batch_size, 1)
+
         for i in range(self.rollout_len):
             self.action_models.clone_env_batch(self.model)
 
@@ -294,9 +307,6 @@ class VIPAgent(BaseAgent):
 
             reps_a_mask = torch.bernoulli(rep_dropout).unsqueeze(1).repeat(1, self.representation_size)
             reps_b_mask = torch.bernoulli(rep_dropout).unsqueeze(1).repeat(1, self.representation_size)
-            
-            reps_a = self.get_agent_representations(states_a, states_b, agent, h_a, h_b)
-            reps_b = self.get_agent_representations(states_b, states_a, self, h_b, h_a)
 
             h_a, dists_a = self.actor.batch_forward(torch.cat([states_a, reps_a*reps_a_mask], dim=1), h_a)
             h_b, dists_b = agent.actor.batch_forward(torch.cat([states_b, reps_b*reps_b_mask], dim=1), h_b)
@@ -327,7 +337,7 @@ class VIPAgent(BaseAgent):
                 obs_b, obs_a = obs
                 r2, r1 = r
 
-            r1_reg = r1 - self.entropy_weight * torch.log(a_t_probs)
+            r1_reg = r1 - self.entropy_weight * torch.log(a_t_probs).detach()
 
             obs_a = obs_a.reshape((self.batch_size, -1))
             obs_b = obs_b.reshape((self.batch_size, -1))

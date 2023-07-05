@@ -34,6 +34,10 @@ class OGCoinGameGPU:
             torch.LongTensor([1, 0]), # down
             torch.LongTensor([-1, 0]), # up
         ], dim=0).to(self.device)
+        self.red_takes_red = torch.zeros(batch_size, dtype=torch.bool).to(device)
+        self.blue_takes_blue = torch.zeros(batch_size, dtype=torch.bool).to(device)
+        self.blue_takes_red = torch.zeros(batch_size, dtype=torch.bool).to(device)
+        self.red_takes_blue = torch.zeros(batch_size, dtype=torch.bool).to(device)
 
     def reset(self):
         self.step_count = 0
@@ -94,6 +98,10 @@ class OGCoinGameGPU:
         self.red_pos = game.red_pos.clone()
         self.blue_pos = game.blue_pos.clone()
         self.coin_pos = game.coin_pos.clone()
+        self.red_takes_red = game.red_takes_red.clone()
+        self.blue_takes_blue = game.blue_takes_blue.clone()
+        self.blue_takes_red = game.blue_takes_red.clone()
+        self.red_takes_blue = game.red_takes_blue.clone()
 
     def clone_env_inv(self, game):
         self.step_count = game.step_count
@@ -196,10 +204,10 @@ class OGCoinGameGPU:
 
         self.red_adv = None
         self.blue_adv = None
-        self.red_can_blue = torch.logical_and((self.red_dist==1), 1 - self.red_coin)
-        self.blue_can_red = torch.logical_and((self.blue_dist==1), self.red_coin)
-        self.red_can_red = torch.logical_and((self.red_dist==1), self.red_coin)
-        self.blue_can_blue = torch.logical_and((self.blue_dist==1), 1 - self.red_coin)
+        self.red_can_blue = torch.logical_and(torch.logical_and((self.red_dist==1), 1 - self.red_coin), ~self.blue_takes_blue)
+        self.blue_can_red = torch.logical_and(torch.logical_and((self.blue_dist==1), self.red_coin), ~self.red_takes_red)
+        self.red_can_red = torch.logical_and(torch.logical_and((self.red_dist==1), self.red_coin), ~self.blue_takes_red)
+        self.blue_can_blue = torch.logical_and(torch.logical_and((self.blue_dist==1), 1 - self.red_coin), ~self.red_takes_blue)
         self.red_takes_red = red_takes_red
         self.blue_takes_blue = blue_takes_blue
         self.blue_takes_red = blue_takes_red

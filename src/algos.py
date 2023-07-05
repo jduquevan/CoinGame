@@ -32,6 +32,15 @@ def optimize_pg_loss(opt_type, opt_1, opt_2, loss_1, loss_2, t):
         else:
             opt_1.step()
             opt_2.step()
+    elif opt_type == "om":
+        loss_1 = -1 * loss_1
+        loss_2 = -1 * loss_2 
+        opt_1.zero_grad()
+        opt_2.zero_grad()
+        loss_1.backward(retain_graph=True)
+        loss_2.backward()
+        opt_1.step()
+        opt_2.step()
 
 def evaluate_agents(agent_1, agent_2, a_c, a_d, evaluation_steps, eval_env, batch_size, conditioned=True):
     agent_1.eval()

@@ -56,7 +56,8 @@ def main(args: DictConfig):
                        n_actions=n_actions,
                        obs_shape=obs[0].shape,
                        model=model_2,
-                       action_models=action_models_2)
+                       action_models=action_models_2,
+                       qa_module=agent_1.qa_module)
     
     always_cooperate = AlwaysCooperateAgent(False, device=device, n_actions=n_actions)
     always_defect = AlwaysDefectAgent(False, device=device, n_actions=n_actions)

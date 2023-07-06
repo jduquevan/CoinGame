@@ -3,7 +3,7 @@ hydra:
   run:
     dir: /network/scratch/j/juan.duque/hydra/
 
-seed: 7
+seed: 1
 reward_window: 7
 num_episodes: 1000000
 sp_weight: 1
@@ -12,14 +12,15 @@ grad_max_norm: 1
 evaluate_every: 50
 evaluation_steps: 100
 wandb_dir: /network/scratch/j/juan.duque/wandb/
-greedy_p: 0.7
+greedy_p: 0
+milestones: [200, 400]
 env:
   max_steps: 50
   split_coins: False
   grid_size: 3
 base_agent:
   gamma: 0.95
-  opt_type: "om"
+  opt_type: "eg"
 vip_agent:
   optim_config:
     lr: 0.005
@@ -27,7 +28,7 @@ vip_agent:
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
-  batch_size: 14000
+  batch_size: 8000
   rollout_len: 50
   representation_size: 8
   hidden_size: 64

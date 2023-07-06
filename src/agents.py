@@ -293,7 +293,6 @@ class VIPAgent(BaseAgent):
 
         states_a = obs_a.reshape((self.batch_size, -1))
         states_b = obs_b.reshape((self.batch_size, -1))
-
         reps_a = torch.mean(self.get_agent_representations(states_a, states_b, agent, h_a, h_b), dim=0)
         reps_b = torch.mean( self.get_agent_representations(states_b, states_a, self, h_b, h_a), dim=0)
         reps_a = reps_a.repeat(self.batch_size, 1)
@@ -308,8 +307,8 @@ class VIPAgent(BaseAgent):
             reps_a_mask = torch.bernoulli(rep_dropout).unsqueeze(1).repeat(1, self.representation_size)
             reps_b_mask = torch.bernoulli(rep_dropout).unsqueeze(1).repeat(1, self.representation_size)
 
-            h_a, dists_a = self.actor.batch_forward(torch.cat([states_a, reps_a*reps_a_mask], dim=1), h_a)
-            h_b, dists_b = agent.actor.batch_forward(torch.cat([states_b, reps_b*reps_b_mask], dim=1), h_b)
+            h_a, dists_a = self.actor.batch_forward(torch.cat([states_a, reps_a_mask*reps_a], dim=1), h_a)
+            h_b, dists_b = agent.actor.batch_forward(torch.cat([states_b, reps_b_mask*reps_b], dim=1), h_b)
 
             h_a = torch.permute(h_a, (1, 0, 2))
             h_b = torch.permute(h_b, (1, 0, 2))
@@ -343,8 +342,6 @@ class VIPAgent(BaseAgent):
             obs_b = obs_b.reshape((self.batch_size, -1))
             
             t_rewards.append(r1_reg)
-            a_rewards.append(r1)
-            o_rewards.append(r2)
             
             steps = steps + 1
         gammas = torch.tensor(self.gamma).repeat(self.batch_size, self.rollout_len - 1).to(self.device)
@@ -356,7 +353,4 @@ class VIPAgent(BaseAgent):
         sum_log_probs = torch.sum(log_probs_c, dim=1)
         pg_loss = torch.mean(returns * sum_log_probs)
 
-        train_r1 = torch.mean(torch.stack(a_rewards)).detach()
-        train_r2 = torch.mean(torch.stack(o_rewards)).detach()
-
-        return pg_loss, train_r1, train_r2
+        return pg_loss

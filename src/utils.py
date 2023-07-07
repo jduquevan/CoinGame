@@ -120,18 +120,18 @@ class WandbLogger():
         if len(self.easy_misses_2)==self.reward_window:
             em_2 = sum(self.easy_misses_2)/len(self.easy_misses_2)
 
-        norms = [None, None, None, None]
-        grad_norms = [None, None, None, None]
-        # for model in [agent_1.qa_module, agent_1.actor, agent_2.qa_module, agent_2.actor]:
-        #     total_norm = 0
-        #     total_grad_norm = 0
-        #     for p in model.parameters():
-        #         param_norm = p.detach().data.norm(2)
-        #         grad_norm = p.grad.detach().data.norm(2)
-        #         total_norm += param_norm
-        #         total_grad_norm += grad_norm
-        #     norms.append(total_norm)
-        #     grad_norms.append(total_grad_norm)
+        norms = []
+        grad_norms = []
+        for model in [agent_1.qa_module, agent_1.actor, agent_2.qa_module, agent_2.actor]:
+            total_norm = 0
+            total_grad_norm = 0
+            for p in model.parameters():
+                param_norm = p.detach().data.norm(2)
+                grad_norm = p.grad.detach().data.norm(2)
+                total_norm += param_norm
+                total_grad_norm += grad_norm
+            norms.append(total_norm)
+            grad_norms.append(total_grad_norm)
 
         wandb_info = {}
         wandb_info['qa_norm_1'] = norms[0]

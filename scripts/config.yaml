@@ -35,5 +35,5 @@ vip_agent:
   history_len: 8
   collab_weight: 1
   exploit_weight: 1
-  entropy_weight: 0.05
+  entropy_weight: 0.3
   rep_dropout: 1.0

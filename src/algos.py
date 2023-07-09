@@ -166,8 +166,8 @@ def run_vip(env,
             h_1 = torch.permute(h_1, (1, 0, 2))
             h_2 = torch.permute(h_2, (1, 0, 2))
 
-            kl_1 = agent_1.compute_kl_divergences(state_1, rep_1, h_1)
-            kl_2 = agent_2.compute_kl_divergences(state_2, rep_2, h_2)
+            kl_1 = agent_1.compute_kl_divergences(agent_2, state_1, state_2, h_1, h_2)
+            kl_2 = agent_2.compute_kl_divergences(agent_1, state_2, state_1, h_2, h_1)
             
             obs, r, _, _ = env.step([action_1, action_2])
             obs_1, obs_2 = obs

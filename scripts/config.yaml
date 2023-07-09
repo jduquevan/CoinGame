@@ -7,7 +7,7 @@ seed: 1
 reward_window: 7
 num_episodes: 1000000
 sp_weight: 1
-kl_weight: 0.05
+kl_weight: 0.0005
 grad_max_norm: 1
 evaluate_every: 50
 evaluation_steps: 100
@@ -20,7 +20,7 @@ env:
   grid_size: 3
 base_agent:
   gamma: 0.95
-  opt_type: "eg"
+  opt_type: "adam"
 vip_agent:
   optim_config:
     lr: 0.005
@@ -35,5 +35,5 @@ vip_agent:
   history_len: 8
   collab_weight: 1
   exploit_weight: 1
-  entropy_weight: 0.3
+  entropy_weight: 0
   rep_dropout: 1.0

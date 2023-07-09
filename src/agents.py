@@ -261,17 +261,24 @@ class VIPAgent(BaseAgent):
         kl_2 = torch.sum(pi_no_info * torch.log(torch.div(pi_no_info, (pi_no_info+pi_info)/2)))
         return (kl_1+kl_2)/2
     
-    def compute_kl_divergences(self, states_a, agent_r, h_a):
+    def compute_kl_divergences(self, agent, states_a, states_b, h_a, h_b):
+        agent_r = self.get_agent_representations(states_a, states_b, agent, h_a, h_b)
         no_info = torch.zeros(self.batch_size, self.representation_size).to(self.device)
         _, pi_info = self.actor.batch_forward(torch.cat([states_a, agent_r], dim=1), h_a)
         _, pi_no_info = self.actor.batch_forward(torch.cat([states_a, no_info], dim=1), h_a)
         pi_info = pi_info.reshape(self.batch_size, -1)
         pi_no_info = pi_no_info.reshape(self.batch_size, -1)
-        kl_1 = torch.mean(torch.sum(pi_info * torch.log(torch.div(pi_info, (pi_no_info+pi_info)/2)), dim=1))
-        kl_2 = torch.mean(torch.sum(pi_no_info * torch.log(torch.div(pi_no_info, (pi_no_info+pi_info)/2)), dim=1))
-        return (kl_1+kl_2)/2
+        kl_1 = torch.mean(torch.sum(pi_info.detach() * torch.log(torch.div(pi_info.detach(), (pi_no_info+pi_info)/2)), dim=1))
+        # kl_2 = torch.mean(torch.sum(pi_no_info * torch.log(torch.div(pi_no_info, (pi_no_info+pi_info)/2)), dim=1))
+        return kl_1
 
     def compute_entropy_normalized(self, state_a, agent_r, h_a):
+        _, pi = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
+        ent = -1 * torch.sum(pi * torch.log(pi))
+        max_ent = torch.log(torch.ones(1)*self.n_actions).to(self.device)
+        return ent/max_ent
+    
+    def compute_entropies_normalized(self, state_a, agent_r, h_a):
         _, pi = self.actor(torch.cat([state_a, agent_r.flatten()]), h_a)
         ent = -1 * torch.sum(pi * torch.log(pi))
         max_ent = torch.log(torch.ones(1)*self.n_actions).to(self.device)
@@ -349,6 +356,7 @@ class VIPAgent(BaseAgent):
         gammas = torch.cat([torch.ones(self.batch_size, 1).to(self.device), gammas], dim=1)
         rewards_t = torch.permute(torch.stack(t_rewards), (1, 0))
         returns = torch.sum(rewards_t*gammas, dim=1)
+        import pdb; pdb.set_trace()
         log_probs_c = torch.permute(torch.stack(log_probs_a) + torch.stack(log_probs_b), (1, 0))
         sum_log_probs = torch.sum(log_probs_c, dim=1)
         pg_loss = torch.mean(returns * sum_log_probs)

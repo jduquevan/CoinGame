@@ -20,7 +20,7 @@ env:
   grid_size: 3
 base_agent:
   gamma: 0.95
-  opt_type: "adam"
+  opt_type: "eg"
 vip_agent:
   optim_config:
     lr: 0.005
@@ -28,12 +28,18 @@ vip_agent:
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
-  batch_size: 8000
+  inf_optim_config:
+    lr: 0.07
+    momentum: 0.9
+    weight_decay: 0
+    beta_1: 0.9
+    beta_2: 0.999
+  batch_size: 7000
   rollout_len: 50
   representation_size: 8
   hidden_size: 64
   history_len: 8
   collab_weight: 1
   exploit_weight: 1
-  entropy_weight: 0
+  entropy_weight: 0.05
   rep_dropout: 1.0

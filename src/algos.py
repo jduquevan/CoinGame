@@ -12,24 +12,36 @@ from torch.optim.lr_scheduler import MultiStepLR
 from .optimizers import ExtraAdam
 from .utils import WandbLogger, get_metrics
 
-def optimize_partial_pg_loss(opt_type, opt, loss, t, scheduler):
+def optimize_losses(opt_type, opt_1, opt_2, loss_1, loss_2, t, scheduler):
     if opt_type == "sgd" or opt_type == "adam":
-        opt.zero_grad()
-        loss.backward(retain_graph=True)
-        opt.step()
+        opt_1.zero_grad()
+        opt_2.zero_grad()
+        loss_1.backward(retain_graph=True)
+        loss_2.backward(retain_graph=True)
+        opt_1.step()
+        opt_2.step()
     elif opt_type == "eg":
-        loss = -1 * loss
-        opt.zero_grad()
-        loss.backward(retain_graph=True)
+        loss_1 = -1 * loss_1
+        loss_2 = -1 * loss_2
+        opt_1.zero_grad()
+        opt_2.zero_grad()
+        loss_1.backward(retain_graph=True)
+        loss_2.backward(retain_graph=True)
         if t % 2 == 0:
-            opt.extrapolation()
+            opt_1.extrapolation()
+            opt_2.extrapolation()
         else:
-            opt.step()
+            opt_1.step()
+            opt_2.step()
     elif opt_type == "om":
-        loss = -1 * loss
-        opt.zero_grad()
-        loss.backward(retain_graph=True)
-        opt.step()
+        loss_1 = -1 * loss_1
+        loss_2 = -1 * loss_2
+        opt_1.zero_grad()
+        opt_2.zero_grad()
+        loss_1.backward(retain_graph=True)
+        loss_2.backward(retain_graph=True)
+        opt_1.step()
+        opt_2.step()
     scheduler.step()
 
 def evaluate_agents(agent_1, agent_2, a_c, a_d, evaluation_steps, eval_env, batch_size, conditioned=True):
@@ -184,10 +196,10 @@ def run_vip(env,
             greedy_1 = np.random.binomial(1, greedy_p)
             greedy_2 = np.random.binomial(1, greedy_p)
             
-            pg_loss_1 = agent_1.compute_pg_loss(agent_2, agent_t=1, greedy=greedy_1)
-            optimize_partial_pg_loss(agent_1.opt_type, agent_1.optimizer, pg_loss_1, t, scheduler_1)
-            pg_loss_2 = agent_2.compute_pg_loss(agent_1, agent_t=2, greedy=greedy_2)
-            optimize_partial_pg_loss(agent_2.opt_type, agent_2.optimizer, pg_loss_2, t, scheduler_2)
+            pg_loss_1, inf_loss_1 = agent_1.compute_pg_loss(agent_2, agent_t=1, greedy=greedy_1)
+            optimize_losses(agent_1.opt_type, agent_1.optimizer, agent_1.inf_optimizer, pg_loss_1, inf_loss_1, t, scheduler_1)
+            pg_loss_2, inf_loss_2 = agent_2.compute_pg_loss(agent_1, agent_t=2, greedy=greedy_2)
+            optimize_losses(agent_2.opt_type, agent_2.optimizer, agent_2.inf_optimizer, pg_loss_2, inf_loss_2, t, scheduler_2)
 
             ent_1, ent_2 = None, None
 

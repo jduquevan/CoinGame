@@ -54,6 +54,7 @@ class VIPAgent(BaseAgent):
     def __init__(self,
                  config,
                  optim_config,
+                 inf_optim_config,
                  batch_size,
                  rollout_len,
                  representation_size,
@@ -114,24 +115,45 @@ class VIPAgent(BaseAgent):
                                        momentum=optim_config["momentum"],
                                        weight_decay=optim_config["weight_decay"],
                                        maximize=True)
+            self.inf_optimizer = optim.SGD(list(self.actor.parameters()) + 
+                                           list(self.qa_module.parameters()), 
+                                           lr=inf_optim_config["lr"],
+                                           momentum=inf_optim_config["momentum"],
+                                           weight_decay=inf_optim_config["weight_decay"],
+                                           maximize=True)
         elif self.opt_type.lower() == "adam":
             self.optimizer = optim.Adam(list(self.actor.parameters()) + 
                                         list(self.qa_module.parameters()), 
                                         lr=optim_config["lr"],
                                         weight_decay=optim_config["weight_decay"],
                                         maximize=True)
+            self.inf_optimizer = optim.Adam(list(self.actor.parameters()) + 
+                                            list(self.qa_module.parameters()), 
+                                            lr=inf_optim_config["lr"],
+                                            weight_decay=inf_optim_config["weight_decay"],
+                                            maximize=True)
         elif self.opt_type.lower() == "eg":
             self.optimizer = ExtraAdam(list(self.actor.parameters()) + 
                                        list(self.qa_module.parameters()),
                                        lr=optim_config["lr"],
                                        betas=(optim_config["beta_1"], optim_config["beta_2"]),
                                        weight_decay=optim_config["weight_decay"])
+            self.inf_optimizer = ExtraAdam(list(self.actor.parameters()) + 
+                                           list(self.qa_module.parameters()),
+                                           lr=inf_optim_config["lr"],
+                                           betas=(inf_optim_config["beta_1"], inf_optim_config["beta_2"]),
+                                           weight_decay=inf_optim_config["weight_decay"])
         elif self.opt_type.lower() == "om":
             self.optimizer = OptimisticAdam(list(self.actor.parameters()) + 
                                             list(self.qa_module.parameters()),
                                             lr=optim_config["lr"],
                                             betas=(optim_config["beta_1"], optim_config["beta_2"]),
                                             weight_decay=optim_config["weight_decay"])
+            self.inf_optimizer = OptimisticAdam(list(self.actor.parameters()) + 
+                                                list(self.qa_module.parameters()),
+                                                lr=inf_optim_config["lr"],
+                                                betas=(inf_optim_config["beta_1"], inf_optim_config["beta_2"]),
+                                                weight_decay=inf_optim_config["weight_decay"])
 
     def eval(self):
         self.qa_module.eval()
@@ -356,9 +378,11 @@ class VIPAgent(BaseAgent):
         gammas = torch.cat([torch.ones(self.batch_size, 1).to(self.device), gammas], dim=1)
         rewards_t = torch.permute(torch.stack(t_rewards), (1, 0))
         returns = torch.sum(rewards_t*gammas, dim=1)
-        import pdb; pdb.set_trace()
-        log_probs_c = torch.permute(torch.stack(log_probs_a) + torch.stack(log_probs_b), (1, 0))
-        sum_log_probs = torch.sum(log_probs_c, dim=1)
-        pg_loss = torch.mean(returns * sum_log_probs)
+        log_probs_a_perm = torch.permute(torch.stack(log_probs_a), (1, 0))
+        log_probs_b_perm = torch.permute(torch.stack(log_probs_b), (1, 0))
+        sum_log_probs_a = torch.sum(log_probs_a_perm, dim=1)
+        sum_log_probs_b = torch.sum(log_probs_b_perm, dim=1)
+        pg_loss = torch.mean(returns * sum_log_probs_a)
+        inf_loss =  torch.mean(returns * sum_log_probs_b)
 
-        return pg_loss
+        return pg_loss, inf_loss

@@ -7,7 +7,7 @@ seed: 1
 reward_window: 7
 num_episodes: 1000000
 sp_weight: 1
-kl_weight: 0.0005
+kl_weight: 0.005
 grad_max_norm: 1
 evaluate_every: 50
 evaluation_steps: 100
@@ -29,17 +29,17 @@ vip_agent:
     beta_1: 0.9
     beta_2: 0.999
   inf_optim_config:
-    lr: 0.07
+    lr: 0.06
     momentum: 0.9
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
   batch_size: 7000
   rollout_len: 50
-  representation_size: 8
+  representation_size: 28
   hidden_size: 64
-  history_len: 8
+  history_len: 30
   collab_weight: 1
   exploit_weight: 1
-  entropy_weight: 0.05
+  entropy_weight: 0.2
   rep_dropout: 1.0

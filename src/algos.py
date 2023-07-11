@@ -197,9 +197,11 @@ def run_vip(env,
             greedy_2 = np.random.binomial(1, greedy_p)
             
             pg_loss_1, inf_loss_1 = agent_1.compute_pg_loss(agent_2, agent_t=1, greedy=greedy_1)
-            optimize_losses(agent_1.opt_type, agent_1.optimizer, agent_1.inf_optimizer, pg_loss_1, inf_loss_1, t, scheduler_1)
+            loss_1 = pg_loss_1 - kl_weight * kl_1
+            optimize_losses(agent_1.opt_type, agent_1.optimizer, agent_1.inf_optimizer, loss_1, inf_loss_1, t, scheduler_1)
             pg_loss_2, inf_loss_2 = agent_2.compute_pg_loss(agent_1, agent_t=2, greedy=greedy_2)
-            optimize_losses(agent_2.opt_type, agent_2.optimizer, agent_2.inf_optimizer, pg_loss_2, inf_loss_2, t, scheduler_2)
+            loss_2 = pg_loss_2 - kl_weight * kl_2
+            optimize_losses(agent_2.opt_type, agent_2.optimizer, agent_2.inf_optimizer, loss_2, inf_loss_2, t, scheduler_2)
 
             ent_1, ent_2 = None, None
 

@@ -40,7 +40,7 @@ export WANDB_MODE=offline
 
 python -m src.run seed=${1}  vip_agent.optim_config.lr=${2} greedy_p=${3} \
     vip_agent.entropy_weight=${4} kl_weight=${5} vip_agent.history_len=${6}\
-    vip_agent.rep_dropout=${7}\
+    vip_agent.rep_dropout=${7} vip_agent.inf_optim_config.lr=${8}\
     hydra.run.dir="/scratch/jduque/hydra" wandb_dir="/scratch/jduque/wandb"
 
 #python -m src.run seed=1 vip_agent.optim_config.lr=0.005 hydra.run.dir="/scratch/jduque/hydra" wandb_dir="/scratch/jduque/wandb"

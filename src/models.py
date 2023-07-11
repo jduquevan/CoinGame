@@ -54,8 +54,8 @@ class VIPActor(nn.Module):
             output, x = self.gru(x.reshape(1, 1, x.shape[0]), h_0)
         else:
             output, x = self.gru(x.reshape(1, 1, x.shape[0]))
-        x = F.relu(self.hidden(x))
-        return output, F.softmax(self.linear(x + inpt).flatten(), dim=0)
+        x = F.relu(self.hidden(x + inpt))
+        return output, F.softmax(self.linear(x).flatten(), dim=0)
 
     def batch_forward(self, x, pi_b=None, h_0=None):
         inpt = x
@@ -65,8 +65,8 @@ class VIPActor(nn.Module):
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]), h_0)
         else:
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]))
-        x = F.relu(self.hidden(x))
-        return output, F.softmax(self.linear(x + inpt), dim=2)
+        x = F.relu(self.hidden(x + inpt))
+        return output, F.softmax(self.linear(x), dim=2)
 
 class HistoryAggregator(nn.Module):
     def __init__(self, in_size, out_size, device, hidden_size=40, num_layers=1):

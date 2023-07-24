@@ -4,16 +4,20 @@ hydra:
     dir: /network/scratch/j/juan.duque/hydra/
 
 seed: 1
+env_type: "cg"
 reward_window: 7
 num_episodes: 1000000
 sp_weight: 1
-kl_weight: 0.005
+kl_weight: 0.05
 grad_max_norm: 1
-evaluate_every: 50
+evaluate_every: 10
 evaluation_steps: 100
 wandb_dir: /network/scratch/j/juan.duque/wandb/
 greedy_p: 0
+reset_every: 1000
+target_update: 10
 milestones: [200, 400]
+exp_weight: 1
 env:
   max_steps: 50
   split_coins: False
@@ -21,25 +25,43 @@ env:
 base_agent:
   gamma: 0.95
   opt_type: "eg"
+vip_agent_ipd:
+  optim_config:
+    lr: 0.0005
+    momentum: 0.9
+    weight_decay: 0
+    beta_1: 0.9
+    beta_2: 0.999
+  critic_optim_config:
+    lr: 0.0005
+    momentum: 0.9
+    weight_decay: 0
+    beta_1: 0.9
+    beta_2: 0.999
+  batch_size: 4000
+  rollout_len: 50
+  hidden_size: 128
+  entropy_weight: 0.05
+  inf_weight: 1
 vip_agent:
   optim_config:
-    lr: 0.005
+    lr: 0.0005
     momentum: 0.9
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
   inf_optim_config:
-    lr: 0.06
+    lr: 0.001
     momentum: 0.9
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
-  batch_size: 7000
+  batch_size: 8000
   rollout_len: 50
   representation_size: 28
-  hidden_size: 64
-  history_len: 30
+  hidden_size: 32
+  history_len: 8
   collab_weight: 1
   exploit_weight: 1
-  entropy_weight: 0.2
+  entropy_weight: 0
   rep_dropout: 1.0

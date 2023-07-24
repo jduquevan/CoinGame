@@ -4,9 +4,22 @@ import wandb
 def magic_box(tau):
     return torch.exp(tau - tau.detach())
 
-def assert_models_are_equal():
-    # assert torch.sum(self.action_models.red_coin == self.model.red_coin).detach == batch_size
-    pass
+def add_gaussian_noise(model, weight, device):
+    with torch.no_grad():
+        for param in model.parameters():
+            param.add_(torch.randn(param.size()).to(device) * weight)
+
+def compute_entropy(dists, n_actions):
+    dists = torch.stack(dists).reshape((-1, n_actions))
+    entropy = -torch.mean(torch.sum(dists * torch.log(dists), dim=1))
+    return entropy
+
+def save_state_dict(model, path):
+    torch.save(model.state_dict(), './weights/'+ path +'.pt')
+
+def load_state_dict(model, path):
+    state_dict = torch.load('./weights/'+ path +'.pt')
+    model.load_state_dict(state_dict)
 
 def get_metrics(env):
     adv_1, adv_2, em_1, em_2 = None, None, None, None
@@ -39,6 +52,49 @@ class WandbLogger():
         self.a_2_pickups = []
         self.easy_misses_1 = []
         self.easy_misses_2 = []
+
+    def log_wandb_ipd_info(self, 
+                           r1, 
+                           r2, 
+                           ent_1, 
+                           ent_2,
+                           pg_loss_1,
+                           pg_loss_2,
+                           val_loss_1,
+                           val_loss_2,
+                           exp_ent_1,
+                           exp_ent_2,
+                           exp_r1,
+                           exp_r2):
+        
+        self.cum_steps = self.cum_steps + 1
+        self.avg_reward_1.insert(0, r1)
+        self.avg_reward_2.insert(0, r2)
+
+        self.avg_reward_1 = self.avg_reward_1[0:self.reward_window]
+        self.avg_reward_2 = self.avg_reward_2[0:self.reward_window]
+
+        avg_1 = sum(self.avg_reward_1)/len(self.avg_reward_1)
+        avg_2 = sum(self.avg_reward_2)/len(self.avg_reward_2)
+
+        wandb_info = {}
+        wandb_info['agent_1_avg_reward'] = avg_1
+        wandb_info['agent_2_avg_reward'] = avg_2
+        wandb_info['total_avg_reward'] = (avg_1 + avg_2)/2
+        wandb_info['entropy_1'] = ent_1
+        wandb_info['entropy_2'] = ent_2
+        wandb_info['exp_entropy_1'] = exp_ent_1
+        wandb_info['exp_entropy_2'] = exp_ent_2
+        wandb_info['pg_loss_1'] = pg_loss_1
+        wandb_info['pg_loss_2'] = pg_loss_2
+        wandb_info['value_loss_1'] = val_loss_1
+        wandb_info['value_loss_2'] = val_loss_2
+        wandb_info['exp_1_avg_reward'] = exp_r1
+        wandb_info['exp_2_avg_reward'] = exp_r2
+
+
+        wandb.log(wandb_info)
+         
 
     def log_wandb_info(self,
                        agent_1,

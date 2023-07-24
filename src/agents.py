@@ -5,7 +5,7 @@ import torch.optim as optim
 
 from functools import reduce
 
-from .models import VIPActor, HistoryAggregator, RolloutBuffer
+from .models import VIPActor, VIPActorIPD, VIPCriticIPD, HistoryAggregator
 from .optimizers import ExtraAdam, OptimisticAdam
 from .utils import magic_box
 
@@ -49,6 +49,143 @@ class AlwaysDefectAgent():
         action = env.get_moves_shortest_path_to_coin(self.is_p_1)
         dist = torch.nn.functional.one_hot(action, self.n_actions).to(self.device)
         return action, dist
+
+class VIPAgentIPD(BaseAgent):
+    def __init__(self,
+                 config,
+                 optim_config,
+                 critic_optim_config,
+                 batch_size,
+                 rollout_len,
+                 hidden_size,
+                 entropy_weight,
+                 inf_weight,
+                 device,
+                 n_actions,
+                 obs_shape):
+        BaseAgent.__init__(self,
+                           **config, 
+                           device=device,
+                           n_actions=n_actions,
+                           obs_shape=obs_shape)
+        self.cum_steps = 0
+        self.batch_size = batch_size
+        self.rollout_len = rollout_len
+        self.hidden_size = hidden_size
+        self.entropy_weight = entropy_weight
+        self.inf_weight = inf_weight
+        self.n_actions = n_actions
+        self.transition: list = list()
+
+        self.actor = VIPActorIPD(in_size=2*self.n_actions,
+                                 out_size=self.n_actions,
+                                 device=self.device,
+                                 hidden_size=self.hidden_size)
+        self.exp_actor = VIPActorIPD(in_size=2*self.n_actions,
+                                     out_size=self.n_actions,
+                                     device=self.device,
+                                     hidden_size=self.hidden_size)
+        self.critic = VIPCriticIPD(in_size=2*self.n_actions,
+                                   device=self.device,
+                                   hidden_size=self.hidden_size)
+        self.target = VIPCriticIPD(in_size=2*self.n_actions,
+                                   device=self.device,
+                                   hidden_size=self.hidden_size)
+        self.actor.to(self.device)
+        self.exp_actor.to(self.device)
+        self.critic.to(self.device)
+        self.target.to(self.device)
+        
+        if self.opt_type.lower() == "sgd":
+            self.optimizer = optim.SGD(list(self.actor.parameters()), 
+                                       lr=optim_config["lr"],
+                                       momentum=optim_config["momentum"],
+                                       weight_decay=optim_config["weight_decay"],
+                                       maximize=True)
+            self.critic_optimizer = optim.SGD(list(self.critic.parameters()), 
+                                              lr=critic_optim_config["lr"],
+                                              momentum=critic_optim_config["momentum"],
+                                              weight_decay=critic_optim_config["weight_decay"])
+        elif self.opt_type.lower() == "adam":
+            self.optimizer = optim.Adam(list(self.actor.parameters()), 
+                                        lr=optim_config["lr"],
+                                        weight_decay=optim_config["weight_decay"],
+                                        maximize=True)
+            self.critic_optimizer = optim.Adam(list(self.critic.parameters()), 
+                                               lr=critic_optim_config["lr"],
+                                               weight_decay=critic_optim_config["weight_decay"])
+        elif self.opt_type.lower() == "eg":
+            self.optimizer = ExtraAdam(list(self.actor.parameters()),
+                                       lr=optim_config["lr"],
+                                       betas=(optim_config["beta_1"], optim_config["beta_2"]),
+                                       weight_decay=optim_config["weight_decay"])
+            self.critic_optimizer = ExtraAdam(list(self.critic.parameters()),
+                                              lr=critic_optim_config["lr"],
+                                              betas=(critic_optim_config["beta_1"], critic_optim_config["beta_2"]),
+                                              weight_decay=critic_optim_config["weight_decay"])
+        elif self.opt_type.lower() == "om":
+            self.optimizer = OptimisticAdam(list(self.actor.parameters()),
+                                            lr=optim_config["lr"],
+                                            betas=(optim_config["beta_1"], optim_config["beta_2"]),
+                                            weight_decay=optim_config["weight_decay"])
+            self.critic_optimizer = OptimisticAdam(list(self.critic.parameters()),
+                                                   lr=critic_optim_config["lr"],
+                                                   betas=(critic_optim_config["beta_1"], critic_optim_config["beta_2"]),
+                                                   weight_decay=critic_optim_config["weight_decay"])
+            
+    def compute_value_loss(self, values, targets, rewards):
+        values = torch.permute(torch.stack(values).reshape(-1, self.batch_size), (1, 0))[:, 0:-1]
+        targets = torch.permute(torch.stack(targets).reshape(-1, self.batch_size), (1, 0))[:, 1:]
+        rewards = torch.permute(torch.stack(rewards).reshape(self.rollout_len, -1), (1, 0))[:, 0:-1]
+
+        est_values = rewards + self.gamma * targets
+
+        value_loss = (values - est_values).flatten().norm(dim=0, p=2)
+        return value_loss
+        
+    
+    def compute_pg_loss(self, 
+                        log_probs_a, 
+                        log_probs_b, 
+                        states, rewards, 
+                        action_probs_a, 
+                        action_probs_b,
+                        exp_action_probs_a,
+                        exp_action_probs_b,
+                        hiddens):
+        
+        states = torch.permute(torch.stack(states), (1, 0, 2))
+        rewards = torch.permute(torch.stack(rewards).reshape(self.rollout_len, -1), (1, 0))[:, 0:-1]
+        action_probs_a = torch.permute(torch.stack(action_probs_a).detach(), (1, 0))[:, 0:-1]
+        action_probs_b = torch.permute(torch.stack(action_probs_b).detach(), (1, 0))[:, 0:-1]
+        exp_action_probs_a = torch.permute(torch.stack(exp_action_probs_a).detach(), (1, 0))[:, 0:-1]
+        exp_action_probs_b = torch.permute(torch.stack(exp_action_probs_b).detach(), (1, 0))[:, 0:-1]
+        hiddens = torch.permute(torch.stack(hiddens).reshape(self.rollout_len, self.batch_size, -1)[0:-1, :, :], (1, 0, 2))
+
+        importance_weights = torch.div((action_probs_a * action_probs_b), (exp_action_probs_a * exp_action_probs_b))
+
+        gammas = torch.tensor(self.gamma).repeat(self.batch_size, self.rollout_len - 1).to(self.device)
+        gammas = torch.exp(torch.cumsum(torch.log(gammas), dim=1))
+        gammas = torch.cat([torch.ones(self.batch_size, 1).to(self.device), gammas], dim=1)[:, 0:-1]
+
+        h_s, values_no_hidden = self.target.batch_forward(states.reshape(-1, self.n_actions*2)[0:self.batch_size, :])
+        h_t, values_hidden = self.target.batch_forward(states.reshape(-1, self.n_actions*2)[self.batch_size:, :], 
+                                                       hiddens.reshape(1, -1, self.actor.hidden_size))
+        values = torch.cat([values_no_hidden, values_hidden], dim=1).reshape(self.batch_size, self.rollout_len)
+        curr_state_vals = values[:, 0:-1]
+        next_state_vals = values[:, 1:]
+
+        advantages = rewards + (next_state_vals - curr_state_vals).detach()
+
+        log_probs_a_perm = torch.permute(torch.stack(log_probs_a), (1, 0))[:, 0:-1]
+        log_probs_b_perm = torch.permute(torch.stack(log_probs_b), (1, 0))[:, 0:-1]
+        
+        pg_loss = torch.mean(torch.sum(importance_weights * log_probs_a_perm * advantages * gammas, dim=1))
+        inf_loss =  torch.mean(torch.sum(importance_weights * log_probs_b_perm * advantages * gammas, dim=1))
+        # import pdb; pdb.set_trace()
+
+        return pg_loss + self.inf_weight * inf_loss
+
 
 class VIPAgent(BaseAgent):
     def __init__(self,

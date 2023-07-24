@@ -31,6 +31,62 @@ class RolloutBuffer:
         del self.indices_a[:]
         del self.indices_b[:]
 
+class VIPActorIPD(nn.Module):
+    def __init__(self, in_size, out_size, device, hidden_size=40, num_layers=1):
+        super(VIPActorIPD, self).__init__()
+
+        self.in_size = in_size
+        self.out_size = out_size
+        self.device = device
+        self.hidden_size = hidden_size
+
+        self.gru = nn.GRU(in_size, hidden_size, num_layers, batch_first=True)
+        self.linear = nn.Linear(hidden_size, out_size)
+
+    def forward(self, x, h_0=None):
+        self.gru.flatten_parameters()
+        if h_0 is not None:
+            output, x = self.gru(x.reshape(1, 1, x.shape[0]), h_0)
+        else:
+            output, x = self.gru(x.reshape(1, 1, x.shape[0]))
+        return output, F.softmax(self.linear(x).flatten(), dim=0)
+    
+    def batch_forward(self, x, h_0=None):
+        self.gru.flatten_parameters()
+        if h_0 is not None:
+            output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]), h_0)
+        else:
+            output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]))
+        return output, F.softmax(self.linear(x), dim=2)
+    
+class VIPCriticIPD(nn.Module):
+    def __init__(self, in_size, device, hidden_size=40, num_layers=1, gru=None):
+        super(VIPCriticIPD, self).__init__()
+
+        self.in_size = in_size
+        self.device = device
+        if gru:
+            self.gru = gru
+        else:
+            self.gru = nn.GRU(in_size, hidden_size, num_layers, batch_first=True)
+        self.linear = nn.Linear(hidden_size, 1)
+
+    def forward(self, x, h_0=None):
+        self.gru.flatten_parameters()
+        if h_0 is not None:
+            output, x = self.gru(x.reshape(1, 1, x.shape[0]), h_0)
+        else:
+            output, x = self.gru(x.reshape(1, 1, x.shape[0]))
+        return output, self.linear(F.relu(x)).flatten()
+    
+    def batch_forward(self, x, h_0=None):
+        self.gru.flatten_parameters()
+        if h_0 is not None:
+            output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]), h_0)
+        else:
+            output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]))
+        return output, self.linear(F.relu(x))
+
 class VIPActor(nn.Module):
     def __init__(self, in_size, out_size, device, hidden_size=40, num_layers=1):
         super(VIPActor, self).__init__()

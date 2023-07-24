@@ -3,3 +3,4 @@
 conda-environment.yaml
 slurm_output/
 wandb/
+weights/

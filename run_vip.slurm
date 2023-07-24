@@ -36,6 +36,6 @@ eval "$(conda shell.bash hook)"
 conda activate cogames
 
 python -m src.run seed=${1}  vip_agent.optim_config.lr=${2} greedy_p=${3} \
-    vip_agent.entropy_weight=${4} kl_weight=${5}
+    vip_agent.entropy_weight=${4} kl_weight=${5} env_type="ipd"
 
 #python -m src.run seed=1 vip_agent.optim_config.lr=0.005

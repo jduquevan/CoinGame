@@ -65,7 +65,13 @@ class WandbLogger():
                            exp_ent_1,
                            exp_ent_2,
                            exp_r1,
-                           exp_r2):
+                           exp_r2,
+                           exp_loss_1,
+                           exp_loss_2,
+                           c_a,
+                           c_b,
+                           d_a,
+                           d_b):
         
         self.cum_steps = self.cum_steps + 1
         self.avg_reward_1.insert(0, r1)
@@ -91,7 +97,12 @@ class WandbLogger():
         wandb_info['value_loss_2'] = val_loss_2
         wandb_info['exp_1_avg_reward'] = exp_r1
         wandb_info['exp_2_avg_reward'] = exp_r2
-
+        wandb_info['exp_loss_1'] = exp_loss_1
+        wandb_info['exp_loss_2'] = exp_loss_2
+        wandb_info['coop_score_a'] = c_a
+        wandb_info['coop_score_b'] = c_b
+        wandb_info['defect_score_a'] = d_a
+        wandb_info['defect_score_b'] = d_b
 
         wandb.log(wandb_info)
          

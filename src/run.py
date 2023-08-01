@@ -7,8 +7,8 @@ import numpy as np
 
 from omegaconf import DictConfig, OmegaConf
 
-from .agents import VIPAgent, VIPAgentIPD, AlwaysCooperateAgent, AlwaysDefectAgent
-from .algos import run_vip, run_vip_ipd
+from .agents import VIPAgent, VIPAgentIPD, VIPAgentIPDV2, AlwaysCooperateAgent, AlwaysDefectAgent
+from .algos import run_vip, run_vip_ipd, run_vip_ipd_v2
 from .coin_game import OGCoinGameGPU
 from .ipd import IPD
 from .utils import save_state_dict
@@ -20,7 +20,6 @@ def seed_all(seed):
 
 @hydra.main(config_path="../scripts", config_name="config", version_base=None)
 def main(args: DictConfig):
-    torch.autograd.set_detect_anomaly(True)
     config: Dict[str, Any] = OmegaConf.to_container(args, resolve=True)
     
     seed_all(config["seed"])
@@ -92,30 +91,55 @@ def main(args: DictConfig):
         n_actions = 2
         target_update = config["target_update"]
         exp_weight = config["exp_weight"]
+        entropy_weight = config["entropy_weight"]
         batch_size = config["vip_agent_ipd"]["batch_size"]
+        agent_ver = config["agent_ver"]
 
         env = IPD(device, batch_size)
         obs, _ = env.reset()
 
-        agent_1 = VIPAgentIPD(config["base_agent"],
-                              **config["vip_agent_ipd"],
-                              device=device,
-                              n_actions=n_actions,
-                              obs_shape=obs[0].shape)
-        agent_2 = VIPAgentIPD(config["base_agent"],
-                              **config["vip_agent_ipd"],
-                              device=device,
-                              n_actions=n_actions,
-                              obs_shape=obs[0].shape)
+        if agent_ver == "v1":
+            agent_1 = VIPAgentIPD(config["base_agent"],
+                                **config["vip_agent_ipd"],
+                                device=device,
+                                n_actions=n_actions,
+                                obs_shape=obs[0].shape)
+            agent_2 = VIPAgentIPD(config["base_agent"],
+                                **config["vip_agent_ipd"],
+                                device=device,
+                                n_actions=n_actions,
+                                obs_shape=obs[0].shape)
 
-        run_vip_ipd(env=env, 
-                    agent_a=agent_1, 
-                    agent_b=agent_2, 
-                    reward_window=reward_window, 
-                    device=device,
-                    target_update=target_update,
-                    exp_weight=exp_weight,
-                    eval_every=evaluate_every)
+            run_vip_ipd(env=env, 
+                        agent_a=agent_1, 
+                        agent_b=agent_2, 
+                        reward_window=reward_window, 
+                        device=device,
+                        target_update=target_update,
+                        exp_weight=exp_weight,
+                        eval_every=evaluate_every,
+                        entropy_weight=entropy_weight)
+            
+        elif agent_ver == "v2":
+            agent_1 = VIPAgentIPDV2(config["base_agent"],
+                                    **config["vip_agent_ipd_v2"],
+                                    device=device,
+                                    n_actions=n_actions,
+                                    obs_shape=obs[0].shape)
+            agent_2 = VIPAgentIPDV2(config["base_agent"],
+                                    **config["vip_agent_ipd_v2"],
+                                    device=device,
+                                    n_actions=n_actions,
+                                    obs_shape=obs[0].shape)
+
+            run_vip_ipd_v2(env=env, 
+                           agent_a=agent_1, 
+                           agent_b=agent_2, 
+                           reward_window=reward_window, 
+                           device=device,
+                           target_update=target_update,
+                           eval_every=evaluate_every,
+                           entropy_weight=entropy_weight)
 
 if __name__ == "__main__":
     main()

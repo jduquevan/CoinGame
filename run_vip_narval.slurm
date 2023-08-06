@@ -17,7 +17,7 @@
 #SBATCH --account=rrg-bengioy-ad
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=40G
-#SBATCH --time=0-05:59:00   
+#SBATCH --time=0-11:59:00   
 #SBATCH --gres=gpu:1 
 
 # Turn on mail notification. There are many possible self-explaining values:
@@ -38,9 +38,9 @@ source /home/jduque/environments/cogames/bin/activate
 module load cuda/11
 export WANDB_MODE=offline
 
-python -m src.run seed=${1}  vip_agent.optim_config.lr=${2} greedy_p=${3} \
-    vip_agent.entropy_weight=${4} kl_weight=${5} vip_agent.history_len=${6}\
-    vip_agent.rep_dropout=${7} vip_agent.inf_optim_config.lr=${8}\
+python -m src.run seed=${1}  vip_agent_ipd.optim_config.lr=${2} \
+    vip_agent_ipd.critic_optim_config.lr=${3} base_agent.opt_type=${4}\
+    exp_weight=${5} env_type="ipd"\
     hydra.run.dir="/scratch/jduque/hydra" wandb_dir="/scratch/jduque/wandb"
 
 #python -m src.run seed=1 vip_agent.optim_config.lr=0.005 hydra.run.dir="/scratch/jduque/hydra" wandb_dir="/scratch/jduque/wandb"

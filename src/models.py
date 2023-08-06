@@ -41,6 +41,7 @@ class VIPActorIPD(nn.Module):
         self.hidden_size = hidden_size
 
         self.gru = nn.GRU(in_size, hidden_size, num_layers, batch_first=True)
+        self.hidden = nn.Linear(hidden_size, hidden_size)
         self.linear = nn.Linear(hidden_size, out_size)
 
     def forward(self, x, h_0=None):
@@ -49,6 +50,7 @@ class VIPActorIPD(nn.Module):
             output, x = self.gru(x.reshape(1, 1, x.shape[0]), h_0)
         else:
             output, x = self.gru(x.reshape(1, 1, x.shape[0]))
+        x = F.relu(self.hidden(x))
         return output, F.softmax(self.linear(x).flatten(), dim=0)
     
     def batch_forward(self, x, h_0=None):
@@ -57,6 +59,7 @@ class VIPActorIPD(nn.Module):
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]), h_0)
         else:
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]))
+        x = F.relu(self.hidden(x))
         return output, F.softmax(self.linear(x), dim=2)
     
 class VIPCriticIPD(nn.Module):
@@ -69,6 +72,7 @@ class VIPCriticIPD(nn.Module):
             self.gru = gru
         else:
             self.gru = nn.GRU(in_size, hidden_size, num_layers, batch_first=True)
+        self.hidden = nn.Linear(hidden_size, hidden_size)
         self.linear = nn.Linear(hidden_size, 1)
 
     def forward(self, x, h_0=None):
@@ -77,6 +81,7 @@ class VIPCriticIPD(nn.Module):
             output, x = self.gru(x.reshape(1, 1, x.shape[0]), h_0)
         else:
             output, x = self.gru(x.reshape(1, 1, x.shape[0]))
+        x = F.relu(self.hidden(x))
         return output, self.linear(F.relu(x)).flatten()
     
     def batch_forward(self, x, h_0=None):
@@ -85,6 +90,7 @@ class VIPCriticIPD(nn.Module):
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]), h_0)
         else:
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]))
+        x = F.relu(self.hidden(x))
         return output, self.linear(F.relu(x))
 
 class VIPActor(nn.Module):

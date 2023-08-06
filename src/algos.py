@@ -10,7 +10,12 @@ from typing import Any, Dict, Optional
 from torch.optim.lr_scheduler import MultiStepLR
 
 from .optimizers import ExtraAdam
-from .utils import WandbLogger, compute_entropy, get_metrics, load_state_dict, magic_box, add_gaussian_noise
+from .utils import (WandbLogger, 
+                    compute_entropy, 
+                    get_metrics, load_state_dict, 
+                    magic_box,
+                    compute_ipd_probs, 
+                    add_gaussian_noise)
 
 def optimize_losses(opt_type, opt_1, opt_2, loss_1, loss_2, t, scheduler):
     if opt_type == "sgd" or opt_type == "adam":
@@ -409,8 +414,7 @@ def run_vip_ipd(env, agent_a, agent_b, reward_window, device, target_update, exp
                                   exp_loss_2=reinforce_loss_b.detach())
 
 def get_ipd_trajectories_v2(env, rollout_len, agent_a, agent_b, entropy_weight, evaluate=False):
-    h_a, h_b, h_ac, h_at = None, None, None, None
-    causal_log_probs_a, causal_log_probs_b  = None, None
+    h_a, h_b, h_ac, h_at, h_bc, h_bt = None, None, None, None, None, None
     return_dict = {}
 
     log_probs_a = []
@@ -424,8 +428,11 @@ def get_ipd_trajectories_v2(env, rollout_len, agent_a, agent_b, entropy_weight, 
     action_probs_a = []
     action_probs_b = []
     values_a = []
+    values_b = []
     targets_a = []
+    targets_b = []
     hiddens_a = []
+    hiddens_b = []
 
     states_a, _ = env.reset()
     states_b =  torch.clone(states_a)
@@ -434,33 +441,29 @@ def get_ipd_trajectories_v2(env, rollout_len, agent_a, agent_b, entropy_weight, 
         obs_a.append(states_a)
         obs_b.append(states_b)
 
-        if log_probs_a:
-            ra_reg = ra - entropy_weight * (torch.log(a_t_probs).reshape(agent_a.batch_size, 1, 1).detach())
-            ra_reg = ra_reg.reshape(agent_a.batch_size)
-            rb = rb.reshape(agent_b.batch_size)
-
-            causal_log_probs_a = torch.sum(torch.permute(torch.stack(log_probs_a), (1, 0)), dim=1)
-            rb = rb * magic_box(causal_log_probs_a)
-
-            rewards_a.append(ra_reg)
-            rewards_b.append(rb)
-
         h_a, dists_a = agent_a.actor.batch_forward(states_a, h_a)
         h_b, dists_b = agent_b.actor.batch_forward(states_b, h_b)
 
         h_ac, val_a = agent_a.critic.batch_forward(states_a, h_ac)
+        h_bc, val_b = agent_b.target.batch_forward(states_b, h_bc)
 
         h_at, tar_a = agent_a.target.batch_forward(states_a, h_at)
+        h_bt, tar_b = agent_b.target.batch_forward(states_b, h_bt)
 
         values_a.append(val_a)
+        values_b.append(val_b)
         targets_a.append(tar_a)
+        targets_b.append(tar_b)
 
         h_a = torch.permute(h_a, (1, 0, 2))
         h_b = torch.permute(h_b, (1, 0, 2))
         h_ac = torch.permute(h_ac, (1, 0, 2))
         h_at = torch.permute(h_at, (1, 0, 2))
+        h_bc = torch.permute(h_bc, (1, 0, 2))
+        h_bt = torch.permute(h_bt, (1, 0, 2))
 
         hiddens_a.append(h_ac)
+        hiddens_b.append(h_bc)
 
         dists_a = dists_a.reshape((agent_a.batch_size, -1))
         dists_b = dists_b.reshape((agent_b.batch_size, -1))
@@ -486,20 +489,19 @@ def get_ipd_trajectories_v2(env, rollout_len, agent_a, agent_b, entropy_weight, 
         obs, r, _= env.step([actions_a, actions_b])
         states_a, states_b = obs
         ra, rb = r
-    
-    if log_probs_a:
-            # TODO:Use q-value function to bootstrap last reward
 
-            ra_reg = ra - entropy_weight * (torch.log(a_t_probs).reshape(agent_a.batch_size, 1, 1).detach())
-            ra_reg = ra_reg.reshape(agent_a.batch_size)
-            rb = rb.reshape(agent_b.batch_size)
+        ra_reg = ra - entropy_weight * (torch.log(a_t_probs).reshape(agent_a.batch_size, 1, 1).detach())
+        ra_reg = ra_reg.reshape(agent_a.batch_size)
+        rb = rb.reshape(agent_b.batch_size)
 
-            causal_log_probs_a = torch.sum(torch.permute(torch.stack(log_probs_a), (1, 0)), dim=1)
-
-            rb = rb * magic_box(causal_log_probs_a)
-
+        if i == rollout_len -1:
+            rewards_a.append(tar_a.reshape(agent_a.batch_size).detach())
+            rewards_b.append(val_b.reshape(agent_a.batch_size).detach())
+        else:
             rewards_a.append(ra_reg)
             rewards_b.append(rb)
+
+    # Compute expected return to approximate infinite game via boostrapping    
     
     return_dict["log_probs_a"] = log_probs_a
     return_dict["log_probs_b"] = log_probs_b
@@ -512,43 +514,54 @@ def get_ipd_trajectories_v2(env, rollout_len, agent_a, agent_b, entropy_weight, 
     return_dict["action_probs_a"] = action_probs_a
     return_dict["action_probs_b"] = action_probs_b
     return_dict["values_a"] = values_a
+    return_dict["values_b"] = values_b
     return_dict["targets_a"] = targets_a
+    return_dict["targets_b"] = targets_b
     return_dict["hiddens_a"] = hiddens_a
+    return_dict["hiddens_b"] = hiddens_b
 
     return return_dict
 
-def run_vip_ipd_v2(env, agent_a, agent_b, reward_window, device, target_update, eval_every, entropy_weight):
+def run_vip_ipd_v2(env, agent_a, agent_b, reward_window, device, target_update, eval_every, entropy_weight, clip_ratio):
     logger = WandbLogger(device, reward_window)
     scheduler_a = MultiStepLR(agent_a.optimizer, milestones=[10000], gamma=0.5, last_epoch=-1, verbose=False)
     scheduler_b = MultiStepLR(agent_b.optimizer, milestones=[10000], gamma=0.5, last_epoch=-1, verbose=False)
     rollout_len = agent_a.rollout_len
     for t in count():
         return_dict = get_ipd_trajectories_v2(env, rollout_len, agent_a, agent_b, entropy_weight)
+        states_trajectory_a = return_dict["states_a"]
 
         entropy_a = compute_entropy(return_dict["dists_a"], agent_a.n_actions)
         val_loss_a = agent_a.compute_value_loss(return_dict["values_a"], return_dict["targets_a"], return_dict["rewards_a"])
-        optimize_loss(agent_a.opt_type, agent_a.critic_optimizer, val_loss_a, t, scheduler_a, maximize=False)
+        val_loss_b = agent_b.compute_value_loss(return_dict["values_b"], return_dict["targets_b"], return_dict["rewards_b"])
+        optimize_loss(agent_a.critic_opt_type, agent_a.critic_optimizer, val_loss_a, t, scheduler_a, maximize=False)
+        optimize_loss(agent_b.critic_opt_type, agent_b.critic_optimizer, val_loss_b, t, scheduler_b, maximize=False)
         
         pg_loss_a = agent_a.compute_reinforce_loss(return_dict["log_probs_a"],
                                                    return_dict["log_probs_b"],
                                                    return_dict["states_a"],
                                                    return_dict["rewards_a"],
                                                    return_dict["rewards_b"],
-                                                   return_dict["hiddens_a"])
+                                                   return_dict["hiddens_a"],
+                                                   return_dict["values_b"])
         optimize_loss(agent_a.opt_type, agent_a.optimizer, pg_loss_a, t, scheduler_a)
 
         return_dict = get_ipd_trajectories_v2(env, rollout_len, agent_b, agent_a, entropy_weight)
+        states_trajectory_b = return_dict["states_a"]
 
         entropy_b = compute_entropy(return_dict["dists_a"], agent_b.n_actions)
         val_loss_b = agent_b.compute_value_loss(return_dict["values_a"], return_dict["targets_a"], return_dict["rewards_a"])
-        optimize_loss(agent_b.opt_type, agent_b.critic_optimizer, val_loss_b, t, scheduler_b, maximize=False)
+        val_loss_a = agent_b.compute_value_loss(return_dict["values_b"], return_dict["targets_b"], return_dict["rewards_b"])
+        optimize_loss(agent_b.critic_opt_type, agent_b.critic_optimizer, val_loss_b, t, scheduler_b, maximize=False)
+        optimize_loss(agent_a.critic_opt_type, agent_a.critic_optimizer, val_loss_a, t, scheduler_a, maximize=False)
         
         pg_loss_b = agent_b.compute_reinforce_loss(return_dict["log_probs_a"],
                                                    return_dict["log_probs_b"],
                                                    return_dict["states_a"],
                                                    return_dict["rewards_a"],
                                                    return_dict["rewards_b"],
-                                                   return_dict["hiddens_a"])
+                                                   return_dict["hiddens_a"],
+                                                   return_dict["values_b"])
         optimize_loss(agent_b.opt_type, agent_b.optimizer, pg_loss_b, t, scheduler_b)
 
         if t % target_update == 0:
@@ -557,9 +570,11 @@ def run_vip_ipd_v2(env, agent_a, agent_b, reward_window, device, target_update, 
 
         if t % eval_every == 0:
             return_dict = get_ipd_trajectories_v2(env, rollout_len, agent_a, agent_b, entropy_weight=0, evaluate=True)
-            ra = torch.mean(torch.stack(return_dict["rewards_a"]))
-            rb = torch.mean(torch.stack(return_dict["rewards_b"]))
+            ra = torch.mean(torch.stack(return_dict["rewards_a"])[:-1, :])
+            rb = torch.mean(torch.stack(return_dict["rewards_b"])[:-1, :])
             c_a, c_b, d_a, d_b = evaluate_ipd_agents(agent_a, agent_b, rollout_len, env)
+            p_c_s_a, p_c_cc_a, p_c_cd_a, p_c_dc_a, p_c_dd_a = compute_ipd_probs(states_trajectory_a, agent_a.device)
+            p_c_s_b, p_c_cc_b, p_c_cd_b, p_c_dc_b, p_c_dd_b = compute_ipd_probs(states_trajectory_b, agent_a.device)
 
         logger.log_wandb_ipd_info(r1=ra.detach(), 
                                   r2=rb.detach(), 
@@ -578,7 +593,17 @@ def run_vip_ipd_v2(env, agent_a, agent_b, reward_window, device, target_update, 
                                   c_a=c_a.detach(),
                                   c_b=c_b.detach(),
                                   d_a=d_a.detach(),
-                                  d_b=d_b.detach())
+                                  d_b=d_b.detach(),
+                                  p_c_s_a=p_c_s_a.detach(),
+                                  p_c_cc_a=p_c_cc_a.detach(),
+                                  p_c_cd_a=p_c_cd_a.detach(),
+                                  p_c_dc_a=p_c_dc_a.detach(),
+                                  p_c_dd_a=p_c_dd_a.detach(),
+                                  p_c_s_b=p_c_s_b.detach(),
+                                  p_c_cc_b=p_c_cc_b.detach(),
+                                  p_c_cd_b=p_c_cd_b.detach(),
+                                  p_c_dc_b=p_c_dc_b.detach(),
+                                  p_c_dd_b=p_c_dd_b.detach())
         
 
 def run_vip(env,

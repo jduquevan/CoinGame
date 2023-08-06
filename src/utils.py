@@ -35,6 +35,71 @@ def get_metrics(env):
 
     return adv_1, adv_2, em_1, em_2
 
+def compute_ipd_probs(states, device):
+    states = torch.permute(torch.stack(states), (1, 0, 2))
+
+    start = torch.Tensor([1, 1, 1, 1]).float().repeat(states.shape[0], 1).to(device)
+    cc = torch.Tensor([1, 0, 1, 0]).float().repeat(states.shape[0], 1).to(device)
+    cd = torch.Tensor([1, 0, 0, 1]).float().repeat(states.shape[0], 1).to(device)
+    dc = torch.Tensor([0, 1, 1, 0]).float().repeat(states.shape[0], 1).to(device)
+    dd = torch.Tensor([0, 1, 0, 1]).float().repeat(states.shape[0], 1).to(device)
+    coop = torch.Tensor([1, 0, 0, 0]).float().repeat(states.shape[0], 1).to(device)
+
+    start_num = torch.zeros(1).to(device)
+    cc_num = torch.zeros(1).to(device)
+    cd_num = torch.zeros(1).to(device)
+    dc_num = torch.zeros(1).to(device)
+    dd_num = torch.zeros(1).to(device)
+
+    c_start_num = torch.zeros(1).to(device)
+    c_cc_num = torch.zeros(1).to(device)
+    c_cd_num = torch.zeros(1).to(device)
+    c_dc_num = torch.zeros(1).to(device)
+    c_dd_num = torch.zeros(1).to(device)
+
+    for i in range(states.shape[1] - 1):
+        start_mask = torch.zeros_like(states).to(device)
+        cc_mask = torch.zeros_like(states).to(device)
+        cd_mask = torch.zeros_like(states).to(device)
+        dc_mask = torch.zeros_like(states).to(device)
+        dd_mask = torch.zeros_like(states).to(device)
+        coop_mask = torch.zeros_like(states).to(device)
+        
+        start_mask[:, i, :] = start
+        cc_mask[:, i, :] = cc
+        cd_mask[:, i, :] = cd
+        dc_mask[:, i, :] = dc
+        dd_mask[:, i, :] = dd
+        coop_mask[:, i+1, :] = coop
+
+        if i > 0:
+            cc_num += torch.sum((torch.sum(states*cc_mask, dim=2) > 1))
+            cd_num += torch.sum((torch.sum(states*cd_mask, dim=2) > 1))
+            dc_num += torch.sum((torch.sum(states*dc_mask, dim=2) > 1))
+            dd_num += torch.sum((torch.sum(states*dd_mask, dim=2) > 1))
+        
+            c_cc_num += torch.sum(torch.logical_and((torch.sum(states*cc_mask, dim=2) > 1)[:,i],
+                                                    (torch.sum(states*coop_mask, dim=2) > 0)[:,i+1]))
+            c_cd_num += torch.sum(torch.logical_and((torch.sum(states*cd_mask, dim=2) > 1)[:,i],
+                                                    (torch.sum(states*coop_mask, dim=2) > 0)[:,i+1]))
+            c_dc_num += torch.sum(torch.logical_and((torch.sum(states*dc_mask, dim=2) > 1)[:,i],
+                                                    (torch.sum(states*coop_mask, dim=2) > 0)[:,i+1]))
+            c_dd_num += torch.sum(torch.logical_and((torch.sum(states*dd_mask, dim=2) > 1)[:,i],
+                                                    (torch.sum(states*coop_mask, dim=2) > 0)[:,i+1]))
+        else:
+            start_num += torch.sum((torch.sum(states*start_mask, dim=2) > 3))
+            c_start_num += torch.sum(torch.logical_and((torch.sum(states*start_mask, dim=2) > 3)[:,i],
+                                                    (torch.sum(states*coop_mask, dim=2) > 0)[:,i+1]))
+
+    c_start_prob = c_start_num/start_num
+    c_cc_prob = c_cc_num/cc_num
+    c_cd_prob = c_cd_num/cd_num
+    c_dc_prob = c_dc_num/dc_num
+    c_dd_prob = c_dd_num/dd_num
+
+    return c_start_prob, c_cc_prob, c_cd_prob, c_dc_prob, c_dd_prob
+    
+
 class WandbLogger():
     def __init__(self, device, reward_window):
         self.device = device
@@ -71,7 +136,17 @@ class WandbLogger():
                            c_a,
                            c_b,
                            d_a,
-                           d_b):
+                           d_b,
+                           p_c_s_a,
+                           p_c_cc_a,
+                           p_c_cd_a,
+                           p_c_dc_a,
+                           p_c_dd_a,
+                           p_c_s_b,
+                           p_c_cc_b,
+                           p_c_cd_b,
+                           p_c_dc_b,
+                           p_c_dd_b):
         
         self.cum_steps = self.cum_steps + 1
         self.avg_reward_1.insert(0, r1)
@@ -103,6 +178,17 @@ class WandbLogger():
         wandb_info['coop_score_b'] = c_b
         wandb_info['defect_score_a'] = d_a
         wandb_info['defect_score_b'] = d_b
+
+        wandb_info['P_a(c|s)'] = p_c_s_a
+        wandb_info['P_a(c|cc)'] = p_c_cc_a
+        wandb_info['P_a(c|cd)'] = p_c_cd_a
+        wandb_info['P_a(c|dc)'] = p_c_dc_a
+        wandb_info['P_a(c|dd)'] = p_c_dd_a
+        wandb_info['P_b(c|s)'] = p_c_s_b
+        wandb_info['P_b(c|cc)'] = p_c_cc_b
+        wandb_info['P_b(c|cd)'] = p_c_cd_b
+        wandb_info['P_b(c|dc)'] = p_c_dc_b
+        wandb_info['P_b(c|dd)'] = p_c_dd_b
 
         wandb.log(wandb_info)
          

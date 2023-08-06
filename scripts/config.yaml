@@ -19,7 +19,8 @@ reset_every: 1000
 target_update: 10
 milestones: [200, 400]
 exp_weight: 0.5
-entropy_weight: 0.05
+entropy_weight: 0
+clip_ratio: 0.5
 env:
   max_steps: 50
   split_coins: False
@@ -27,27 +28,27 @@ env:
 base_agent:
   gamma: 0.95
   opt_type: "eg"
-  critic_opt_type: "adam"
+  critic_opt_type: "om"
   exp_opt_type: "eg"
   other_opt_type: "adam"
 vip_agent_ipd_v2:
   optim_config:
-    lr: 0.00001
+    lr: 0.0001
     momentum: 0.9
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
   critic_optim_config:
-    lr: 0.005
+    lr: 0.01
     momentum: 0.9
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
   batch_size: 4000
-  rollout_len: 50
+  rollout_len: 10
   hidden_size: 128
-  entropy_weight: 0.05
-  inf_weight: 0.5
+  entropy_weight: 0.1
+  inf_weight: 40
 vip_agent_ipd:
   optim_config:
     lr: 0.0005

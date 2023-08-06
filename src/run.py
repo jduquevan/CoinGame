@@ -94,6 +94,7 @@ def main(args: DictConfig):
         entropy_weight = config["entropy_weight"]
         batch_size = config["vip_agent_ipd"]["batch_size"]
         agent_ver = config["agent_ver"]
+        clip_ratio = config["clip_ratio"]
 
         env = IPD(device, batch_size)
         obs, _ = env.reset()
@@ -139,7 +140,8 @@ def main(args: DictConfig):
                            device=device,
                            target_update=target_update,
                            eval_every=evaluate_every,
-                           entropy_weight=entropy_weight)
+                           entropy_weight=entropy_weight,
+                           clip_ratio=clip_ratio)
 
 if __name__ == "__main__":
     main()

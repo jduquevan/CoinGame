@@ -125,16 +125,16 @@ class VIPAgentIPDV2(BaseAgent):
                                               lr=critic_optim_config["lr"],
                                               momentum=critic_optim_config["momentum"],
                                               weight_decay=critic_optim_config["weight_decay"])
-        elif self.opt_type.lower() == "adam":
+        elif self.critic_opt_type.lower() == "adam":
             self.critic_optimizer = optim.Adam(list(self.critic.parameters()), 
                                                lr=critic_optim_config["lr"],
                                                weight_decay=critic_optim_config["weight_decay"])
-        elif self.opt_type.lower() == "eg":
+        elif self.critic_opt_type.lower() == "eg":
             self.critic_optimizer = ExtraAdam(list(self.critic.parameters()),
                                               lr=critic_optim_config["lr"],
                                               betas=(critic_optim_config["beta_1"], critic_optim_config["beta_2"]),
                                               weight_decay=critic_optim_config["weight_decay"])
-        elif self.opt_type.lower() == "om":
+        elif self.critic_opt_type.lower() == "om":
             self.critic_optimizer = OptimisticAdam(list(self.critic.parameters()),
                                                    lr=critic_optim_config["lr"],
                                                    betas=(critic_optim_config["beta_1"], critic_optim_config["beta_2"]),
@@ -158,31 +158,40 @@ class VIPAgentIPDV2(BaseAgent):
         value_loss = (values - est_values).flatten().norm(dim=0, p=2)
         return value_loss
     
-    def compute_reinforce_loss(self, log_probs_a, log_probs_b, states, rewards_a, rewards_b, hiddens):
-        states = torch.permute(torch.stack(states), (1, 0, 2))
+    def compute_reinforce_loss(self, log_probs_a, log_probs_b, states_a, rewards_a, rewards_b, hiddens_a, values_b):
+        states_a = torch.permute(torch.stack(states_a), (1, 0, 2))
         rewards_a = torch.permute(torch.stack(rewards_a).reshape(self.rollout_len, -1), (1, 0))
         rewards_b = torch.permute(torch.stack(rewards_b).reshape(self.rollout_len, -1), (1, 0))
         log_probs_a = torch.permute(torch.stack(log_probs_a).reshape(self.rollout_len, -1), (1, 0))
         log_probs_b = torch.permute(torch.stack(log_probs_b).reshape(self.rollout_len, -1), (1, 0))
-        hiddens = torch.permute(torch.stack(hiddens).reshape(self.rollout_len, self.batch_size, -1)[0:-1, :, :], (1, 0, 2))
-        
+        hiddens_a = torch.permute(torch.stack(hiddens_a).reshape(self.rollout_len, self.batch_size, -1)[0:-1, :, :], (1, 0, 2))
+        values_b = torch.permute(torch.stack(values_b).reshape(self.rollout_len, self.batch_size), (1, 0))
+
+        ratio = torch.exp(log_probs_a - log_probs_a.detach())
+
         gammas = torch.tensor(self.gamma).repeat(self.batch_size, self.rollout_len - 1).to(self.device)
         gammas = torch.exp(torch.cumsum(torch.log(gammas), dim=1))
         gammas = torch.cat([torch.ones(self.batch_size, 1).to(self.device), gammas], dim=1)
+        
+        h_s, values_no_hidden_a = self.target.batch_forward(states_a.reshape(-1, self.n_actions*2)[0:self.batch_size, :])
+        h_t, values_hidden_a = self.target.batch_forward(states_a.reshape(-1, self.n_actions*2)[self.batch_size:, :], 
+                                                         hiddens_a.reshape(1, -1, self.actor.hidden_size))
+        values_a = torch.cat([values_no_hidden_a, values_hidden_a], dim=1).reshape(self.batch_size, self.rollout_len).detach()
+        curr_state_vals_a = values_a[:, 0:-1]
+        next_state_vals_a = values_a[:, 1:]
 
-        h_s, values_no_hidden = self.target.batch_forward(states.reshape(-1, self.n_actions*2)[0:self.batch_size, :])
-        h_t, values_hidden = self.target.batch_forward(states.reshape(-1, self.n_actions*2)[self.batch_size:, :], 
-                                                       hiddens.reshape(1, -1, self.actor.hidden_size))
-        values = torch.cat([values_no_hidden, values_hidden], dim=1).reshape(self.batch_size, self.rollout_len).detach()
-        curr_state_vals = values[:, 0:-1]
-        next_state_vals = values[:, 1:]
 
-        advantages = rewards_a[:, 0:-1] + (self.gamma*next_state_vals - curr_state_vals).detach()
+        advantages = rewards_a[:, 0:-1] + (self.gamma*next_state_vals_a - curr_state_vals_a).detach()
+        #clipped_advantages = advantages * torch.clamp(ratio, 1-clip_ratio, 1+clip_ratio)[:, 0:-1]
 
-        returns_b = torch.flip(torch.cumsum(torch.flip(rewards_b * gammas, [1]), 1), [1])
+        returns_b = torch.flip(torch.cumsum(torch.flip(rewards_b * gammas, [1]), 1), [1]) - values_b.detach()
+
+        future_log_probs_a = torch.flip(torch.cumsum(torch.flip(log_probs_a, [1]), 1), [1])
+        
+        # mask = (advantages<0)*(returns_b[:, 1:]<0)
 
         pg_loss = torch.mean(torch.sum(log_probs_a[:,0:-1] * advantages * gammas[:,0:-1], dim=1))
-        inf_loss =  torch.mean(torch.sum(torch.abs(returns_b[:, 1:]) * advantages * gammas[:,0:-1], dim=1))
+        inf_loss =  torch.mean(torch.sum(future_log_probs_a[:, 1:] * returns_b[:, 1:] * advantages, dim=1))
 
         return pg_loss + self.inf_weight * inf_loss
 
@@ -262,11 +271,11 @@ class VIPAgentIPD(BaseAgent):
                                               lr=critic_optim_config["lr"],
                                               momentum=critic_optim_config["momentum"],
                                               weight_decay=critic_optim_config["weight_decay"])
-        elif self.opt_type.lower() == "adam":
+        elif self.critic_opt_type.lower() == "adam":
             self.critic_optimizer = optim.Adam(list(self.critic.parameters()), 
                                                lr=critic_optim_config["lr"],
                                                weight_decay=critic_optim_config["weight_decay"])
-        elif self.opt_type.lower() == "eg":
+        elif self.critic_opt_type.lower() == "eg":
             self.critic_optimizer = ExtraAdam(list(self.critic.parameters()),
                                               lr=critic_optim_config["lr"],
                                               betas=(critic_optim_config["beta_1"], critic_optim_config["beta_2"]),

@@ -26,4 +26,4 @@ class IPD(gym.Env):
         return (obs_1.float(), obs_2.float()), (r1, r2), {}
 
     def reset(self):
-        return torch.zeros(self.batch_size, 2 * self.n_actions).to(self.device), {}
+        return torch.ones(self.batch_size, 2 * self.n_actions).to(self.device), {}

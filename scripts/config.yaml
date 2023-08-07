@@ -19,7 +19,7 @@ reset_every: 1000
 target_update: 10
 milestones: [200, 400]
 exp_weight: 0.5
-entropy_weight: 0
+entropy_weight: 0.1
 clip_ratio: 0.5
 env:
   max_steps: 50
@@ -46,9 +46,9 @@ vip_agent_ipd_v2:
     beta_2: 0.999
   batch_size: 4000
   rollout_len: 10
-  hidden_size: 128
+  hidden_size: 64
   entropy_weight: 0.1
-  inf_weight: 40
+  inf_weight: 1
 vip_agent_ipd:
   optim_config:
     lr: 0.0005

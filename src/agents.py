@@ -158,7 +158,7 @@ class VIPAgentIPDV2(BaseAgent):
         value_loss = (values - est_values).flatten().norm(dim=0, p=2)
         return value_loss
     
-    def compute_reinforce_loss(self, log_probs_a, log_probs_b, states_a, rewards_a, rewards_b, hiddens_a, values_b):
+    def compute_reinforce_loss(self, log_probs_a, log_probs_b, states_a, rewards_a, rewards_b, hiddens_a, values_b, t=0):
         states_a = torch.permute(torch.stack(states_a), (1, 0, 2))
         rewards_a = torch.permute(torch.stack(rewards_a).reshape(self.rollout_len, -1), (1, 0))
         rewards_b = torch.permute(torch.stack(rewards_b).reshape(self.rollout_len, -1), (1, 0))
@@ -184,14 +184,15 @@ class VIPAgentIPDV2(BaseAgent):
         advantages = rewards_a[:, 0:-1] + (self.gamma*next_state_vals_a - curr_state_vals_a).detach()
         #clipped_advantages = advantages * torch.clamp(ratio, 1-clip_ratio, 1+clip_ratio)[:, 0:-1]
 
-        returns_b = torch.flip(torch.cumsum(torch.flip(rewards_b * gammas, [1]), 1), [1]) - values_b.detach()
+        returns_b = torch.flip(torch.cumsum(torch.flip(rewards_b * gammas, [1]), 1), [1]) - (values_b* gammas).detach()
 
         future_log_probs_a = torch.flip(torch.cumsum(torch.flip(log_probs_a, [1]), 1), [1])
-        
-        # mask = (advantages<0)*(returns_b[:, 1:]<0)
+        mask_ex = torch.torch.logical_not((advantages<0)*(returns_b[:, 1:]<0))
+        mask_neg = -1*(advantages<0)*(returns_b[:, 1:]>0)
+        mask = (advantages>0)*(returns_b[:, 1:]>0)
 
-        pg_loss = torch.mean(torch.sum(log_probs_a[:,0:-1] * advantages * gammas[:,0:-1], dim=1))
-        inf_loss =  torch.mean(torch.sum(future_log_probs_a[:, 1:] * returns_b[:, 1:] * advantages, dim=1))
+        pg_loss = torch.mean(torch.sum(log_probs_a[:, 0:-1] * advantages * gammas[:, 0:-1], dim=1))
+        inf_loss =  torch.mean(torch.sum(future_log_probs_a[:, 0:-1] * returns_b[:, 0:-1] * advantages * mask_neg, dim=1))
 
         return pg_loss + self.inf_weight * inf_loss
 

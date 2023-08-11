@@ -158,7 +158,7 @@ class VIPAgentIPDV2(BaseAgent):
         value_loss = (values - est_values).flatten().norm(dim=0, p=2)
         return value_loss
     
-    def compute_reinforce_loss(self, log_probs_a, log_probs_b, states_a, rewards_a, rewards_b, hiddens_a, values_b, t=0):
+    def compute_reinforce_loss(self, log_probs_a, log_probs_b, states_a, rewards_a, rewards_b, hiddens_a, values_b, causal_rewards_b):
         states_a = torch.permute(torch.stack(states_a), (1, 0, 2))
         rewards_a = torch.permute(torch.stack(rewards_a).reshape(self.rollout_len, -1), (1, 0))
         rewards_b = torch.permute(torch.stack(rewards_b).reshape(self.rollout_len, -1), (1, 0))
@@ -166,8 +166,6 @@ class VIPAgentIPDV2(BaseAgent):
         log_probs_b = torch.permute(torch.stack(log_probs_b).reshape(self.rollout_len, -1), (1, 0))
         hiddens_a = torch.permute(torch.stack(hiddens_a).reshape(self.rollout_len, self.batch_size, -1)[0:-1, :, :], (1, 0, 2))
         values_b = torch.permute(torch.stack(values_b).reshape(self.rollout_len, self.batch_size), (1, 0))
-
-        ratio = torch.exp(log_probs_a - log_probs_a.detach())
 
         gammas = torch.tensor(self.gamma).repeat(self.batch_size, self.rollout_len - 1).to(self.device)
         gammas = torch.exp(torch.cumsum(torch.log(gammas), dim=1))
@@ -180,21 +178,38 @@ class VIPAgentIPDV2(BaseAgent):
         curr_state_vals_a = values_a[:, 0:-1]
         next_state_vals_a = values_a[:, 1:]
 
-
         advantages = rewards_a[:, 0:-1] + (self.gamma*next_state_vals_a - curr_state_vals_a).detach()
-        #clipped_advantages = advantages * torch.clamp(ratio, 1-clip_ratio, 1+clip_ratio)[:, 0:-1]
+        advantages = (advantages - torch.mean(advantages))/torch.std(advantages)
 
-        returns_b = torch.flip(torch.cumsum(torch.flip(rewards_b * gammas, [1]), 1), [1]) - (values_b* gammas).detach()
+        future_returns_b = []
+        for i in range(self.rollout_len):
+            if i>0:
+                future_returns_b.append(torch.sum(causal_rewards_b[i][:, i:] * gammas[:, :-i], dim=1))
+            else:
+                future_returns_b.append(torch.sum(causal_rewards_b[i][:, i:] * gammas, dim=1))
 
-        future_log_probs_a = torch.flip(torch.cumsum(torch.flip(log_probs_a, [1]), 1), [1])
-        mask_ex = torch.torch.logical_not((advantages<0)*(returns_b[:, 1:]<0))
-        mask_neg = -1*(advantages<0)*(returns_b[:, 1:]>0)
-        mask = (advantages>0)*(returns_b[:, 1:]>0)
+        future_returns_b = torch.permute(torch.stack(future_returns_b), (1, 0)) - values_b.detach()
+        future_returns_b = (future_returns_b - torch.mean(future_returns_b))/torch.std(future_returns_b)
+
+        positive_adv_ratio = torch.sum(advantages>0)/(advantages.shape[0]*advantages.shape[1])
+        positive_ret_ratio = torch.sum(future_returns_b>0)/(future_returns_b.shape[0]*future_returns_b.shape[1])
+
+        # mask= torch.torch.logical_not((advantages<0)*(future_returns_b[:, 1:]<0))
+        mask = torch.ones(self.batch_size, self.rollout_len-1).to(self.device) -2*(advantages<0)*(future_returns_b[:, 1:]<0)
 
         pg_loss = torch.mean(torch.sum(log_probs_a[:, 0:-1] * advantages * gammas[:, 0:-1], dim=1))
-        inf_loss =  torch.mean(torch.sum(future_log_probs_a[:, 0:-1] * returns_b[:, 0:-1] * advantages * mask_neg, dim=1))
+        inf_loss = torch.mean(torch.sum(future_returns_b[:, 0:-1] * advantages * mask, dim=1))
 
-        return pg_loss + self.inf_weight * inf_loss
+        # future_log_probs_a = torch.flip(torch.cumsum(torch.flip(log_probs_a, [1]), 1), [1])
+        # mask_ex = torch.torch.logical_not((advantages<0)*(returns_b[:, 1:]<0))
+        # mask_neg = -1*(advantages<0)*(returns_b[:, 1:]>0)
+        # mask = torch.logical_or((advantages<0)*(returns_b[:, 1:]>0), (advantages>0)*(returns_b[:, 1:]>0))
+        # mask = torch.logical_or(mask, (advantages>0)*(returns_b[:, 1:]<0))
+
+        
+        # inf_loss = torch.mean(torch.sum(future_log_probs_a[:, 0:-1] * returns_b[:, 0:-1] * advantages * mask, dim=1))
+
+        return pg_loss - self.inf_weight * inf_loss, positive_adv_ratio, positive_ret_ratio
 
 
 class VIPAgentIPD(BaseAgent):

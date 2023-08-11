@@ -146,7 +146,11 @@ class WandbLogger():
                            p_c_cc_b,
                            p_c_cd_b,
                            p_c_dc_b,
-                           p_c_dd_b):
+                           p_c_dd_b,
+                           pos_adv_ratio_a,
+                           pos_ret_ratio_a,
+                           pos_adv_ratio_b,
+                           pos_ret_ratio_b):
         
         self.cum_steps = self.cum_steps + 1
         self.avg_reward_1.insert(0, r1)
@@ -189,6 +193,11 @@ class WandbLogger():
         wandb_info['P_b(c|cd)'] = p_c_cd_b
         wandb_info['P_b(c|dc)'] = p_c_dc_b
         wandb_info['P_b(c|dd)'] = p_c_dd_b
+
+        wandb_info['pos_adv_ratio_a'] = pos_adv_ratio_a
+        wandb_info['pos_ret_ratio_a'] = pos_ret_ratio_a
+        wandb_info['pos_adv_ratio_b'] = pos_adv_ratio_b
+        wandb_info['pos_ret_ratio_b'] = pos_ret_ratio_b
 
         wandb.log(wandb_info)
          

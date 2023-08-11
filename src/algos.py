@@ -433,6 +433,7 @@ def get_ipd_trajectories_v2(env, rollout_len, agent_a, agent_b, entropy_weight, 
     targets_b = []
     hiddens_a = []
     hiddens_b = []
+    causal_rewards_b = []
 
     states_a, _ = env.reset()
     states_b =  torch.clone(states_a)
@@ -501,7 +502,16 @@ def get_ipd_trajectories_v2(env, rollout_len, agent_a, agent_b, entropy_weight, 
             rewards_a.append(ra_reg)
             rewards_b.append(rb)
 
-    # Compute expected return to approximate infinite game via boostrapping    
+    log_probs_a_t = torch.permute(torch.stack(log_probs_a), (1, 0))
+    rewards_b_t = torch.permute(torch.stack(rewards_b), (1, 0)).to(agent_a.device)
+    for i in range(rollout_len):
+        if i > 0:
+            mask = torch.cat([torch.zeros(agent_a.batch_size, i), torch.ones(agent_a.batch_size, rollout_len-i)], 
+                             dim=1).to(agent_a.device)
+        else:
+            mask = torch.ones(agent_a.batch_size, rollout_len).to(agent_a.device)
+        causal_log_probs_a_t = torch.cumsum(mask * log_probs_a_t, 1)
+        causal_rewards_b.append(magic_box(causal_log_probs_a_t)*rewards_b_t)
     
     return_dict["log_probs_a"] = log_probs_a
     return_dict["log_probs_b"] = log_probs_b
@@ -519,6 +529,7 @@ def get_ipd_trajectories_v2(env, rollout_len, agent_a, agent_b, entropy_weight, 
     return_dict["targets_b"] = targets_b
     return_dict["hiddens_a"] = hiddens_a
     return_dict["hiddens_b"] = hiddens_b
+    return_dict["causal_rewards_b"] = causal_rewards_b
 
     return return_dict
 
@@ -537,13 +548,14 @@ def run_vip_ipd_v2(env, agent_a, agent_b, reward_window, device, target_update, 
         optimize_loss(agent_a.critic_opt_type, agent_a.critic_optimizer, val_loss_a, t, scheduler_a, maximize=False)
         optimize_loss(agent_b.critic_opt_type, agent_b.critic_optimizer, val_loss_b, t, scheduler_b, maximize=False)
         
-        pg_loss_a = agent_a.compute_reinforce_loss(return_dict["log_probs_a"],
-                                                   return_dict["log_probs_b"],
-                                                   return_dict["states_a"],
-                                                   return_dict["rewards_a"],
-                                                   return_dict["rewards_b"],
-                                                   return_dict["hiddens_a"],
-                                                   return_dict["values_b"])
+        pg_loss_a, pos_adv_ratio_a, pos_ret_ratio_a = agent_a.compute_reinforce_loss(return_dict["log_probs_a"],
+                                                                                     return_dict["log_probs_b"],
+                                                                                     return_dict["states_a"],
+                                                                                     return_dict["rewards_a"],
+                                                                                     return_dict["rewards_b"],
+                                                                                     return_dict["hiddens_a"],
+                                                                                     return_dict["values_b"],
+                                                                                     return_dict["causal_rewards_b"])
         optimize_loss(agent_a.opt_type, agent_a.optimizer, pg_loss_a, t, scheduler_a)
 
         return_dict = get_ipd_trajectories_v2(env, rollout_len, agent_b, agent_a, entropy_weight)
@@ -555,13 +567,14 @@ def run_vip_ipd_v2(env, agent_a, agent_b, reward_window, device, target_update, 
         optimize_loss(agent_b.critic_opt_type, agent_b.critic_optimizer, val_loss_b, t, scheduler_b, maximize=False)
         optimize_loss(agent_a.critic_opt_type, agent_a.critic_optimizer, val_loss_a, t, scheduler_a, maximize=False)
         
-        pg_loss_b = agent_b.compute_reinforce_loss(return_dict["log_probs_a"],
-                                                   return_dict["log_probs_b"],
-                                                   return_dict["states_a"],
-                                                   return_dict["rewards_a"],
-                                                   return_dict["rewards_b"],
-                                                   return_dict["hiddens_a"],
-                                                   return_dict["values_b"])
+        pg_loss_b, pos_adv_ratio_b, pos_ret_ratio_b = agent_b.compute_reinforce_loss(return_dict["log_probs_a"],
+                                                                                     return_dict["log_probs_b"],
+                                                                                     return_dict["states_a"],
+                                                                                     return_dict["rewards_a"],
+                                                                                     return_dict["rewards_b"],
+                                                                                     return_dict["hiddens_a"],
+                                                                                     return_dict["values_b"],
+                                                                                     return_dict["causal_rewards_b"])
         optimize_loss(agent_b.opt_type, agent_b.optimizer, pg_loss_b, t, scheduler_b)
 
         if t % target_update == 0:
@@ -603,7 +616,11 @@ def run_vip_ipd_v2(env, agent_a, agent_b, reward_window, device, target_update, 
                                   p_c_cc_b=p_c_cc_b.detach(),
                                   p_c_cd_b=p_c_cd_b.detach(),
                                   p_c_dc_b=p_c_dc_b.detach(),
-                                  p_c_dd_b=p_c_dd_b.detach())
+                                  p_c_dd_b=p_c_dd_b.detach(),
+                                  pos_adv_ratio_a=pos_adv_ratio_a.detach(),
+                                  pos_ret_ratio_a=pos_ret_ratio_a.detach(),
+                                  pos_adv_ratio_b=pos_adv_ratio_b.detach(),
+                                  pos_ret_ratio_b=pos_ret_ratio_b.detach())
         
 
 def run_vip(env,

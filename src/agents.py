@@ -56,7 +56,7 @@ class AlwaysDefectAgent():
         dist = torch.nn.functional.one_hot(action, self.n_actions).to(self.device)
         return action, dist
 
-class VIPAgentIPDV2(BaseAgent):
+class VIPAgentIPD(BaseAgent):
     def __init__(self,
                  config,
                  optim_config,
@@ -89,8 +89,7 @@ class VIPAgentIPDV2(BaseAgent):
                                  hidden_size=self.hidden_size)
         self.critic = VIPCriticIPD(in_size=2*self.n_actions,
                                    device=self.device,
-                                   hidden_size=self.hidden_size,
-                                   gru=self.actor.gru)
+                                   hidden_size=self.hidden_size)
         self.target = VIPCriticIPD(in_size=2*self.n_actions,
                                    device=self.device,
                                    hidden_size=self.hidden_size)
@@ -194,8 +193,9 @@ class VIPAgentIPDV2(BaseAgent):
         positive_adv_ratio = torch.sum(advantages>0)/(advantages.shape[0]*advantages.shape[1])
         positive_ret_ratio = torch.sum(future_returns_b>0)/(future_returns_b.shape[0]*future_returns_b.shape[1])
 
+        mask=(advantages<0)*(future_returns_b[:, 1:]>0)
         # mask= torch.torch.logical_not((advantages<0)*(future_returns_b[:, 1:]<0))
-        mask = torch.ones(self.batch_size, self.rollout_len-1).to(self.device) -2*(advantages<0)*(future_returns_b[:, 1:]<0)
+        # mask = torch.ones(self.batch_size, self.rollout_len-1).to(self.device) -2*(advantages<0)*(future_returns_b[:, 1:]<0)
 
         pg_loss = torch.mean(torch.sum(log_probs_a[:, 0:-1] * advantages * gammas[:, 0:-1], dim=1))
         inf_loss = torch.mean(torch.sum(future_returns_b[:, 0:-1] * advantages * mask, dim=1))
@@ -211,13 +211,11 @@ class VIPAgentIPDV2(BaseAgent):
 
         return pg_loss - self.inf_weight * inf_loss, positive_adv_ratio, positive_ret_ratio
 
-
-class VIPAgentIPD(BaseAgent):
+class VIPAgent(BaseAgent):
     def __init__(self,
                  config,
                  optim_config,
                  critic_optim_config,
-                 exp_optim_config,
                  batch_size,
                  rollout_len,
                  hidden_size,
@@ -240,23 +238,17 @@ class VIPAgentIPD(BaseAgent):
         self.n_actions = n_actions
         self.transition: list = list()
 
-        self.actor = VIPActorIPD(in_size=2*self.n_actions,
+        self.actor = VIPActorIPD(in_size=self.obs_size+2*self.n_actions,
                                  out_size=self.n_actions,
                                  device=self.device,
                                  hidden_size=self.hidden_size)
-        self.exp_actor = VIPActorIPD(in_size=2*self.n_actions,
-                                     out_size=self.n_actions,
-                                     device=self.device,
-                                     hidden_size=self.hidden_size)
-        self.critic = VIPCriticIPD(in_size=2*self.n_actions,
+        self.critic = VIPCriticIPD(in_size=self.obs_size+2*self.n_actions,
                                    device=self.device,
-                                   hidden_size=self.hidden_size,
-                                   gru=self.actor.gru)
-        self.target = VIPCriticIPD(in_size=2*self.n_actions,
+                                   hidden_size=self.hidden_size)
+        self.target = VIPCriticIPD(in_size=self.obs_size+2*self.n_actions,
                                    device=self.device,
                                    hidden_size=self.hidden_size)
         self.actor.to(self.device)
-        self.exp_actor.to(self.device)
         self.critic.to(self.device)
         self.target.to(self.device)
         
@@ -296,33 +288,19 @@ class VIPAgentIPD(BaseAgent):
                                               lr=critic_optim_config["lr"],
                                               betas=(critic_optim_config["beta_1"], critic_optim_config["beta_2"]),
                                               weight_decay=critic_optim_config["weight_decay"])
-        elif self.opt_type.lower() == "om":
+        elif self.critic_opt_type.lower() == "om":
             self.critic_optimizer = OptimisticAdam(list(self.critic.parameters()),
                                                    lr=critic_optim_config["lr"],
                                                    betas=(critic_optim_config["beta_1"], critic_optim_config["beta_2"]),
                                                    weight_decay=critic_optim_config["weight_decay"])
-        
-        if self.exp_opt_type.lower() == "sgd":
-            self.exp_optimizer = optim.SGD(list(self.exp_actor.parameters()), 
-                                       lr=exp_optim_config["lr"],
-                                       momentum=exp_optim_config["momentum"],
-                                       weight_decay=exp_optim_config["weight_decay"],
-                                       maximize=True)
-        elif self.exp_opt_type.lower() == "adam":
-            self.exp_optimizer = optim.Adam(list(self.exp_actor.parameters()), 
-                                        lr=exp_optim_config["lr"],
-                                        weight_decay=exp_optim_config["weight_decay"],
-                                        maximize=True)
-        elif self.exp_opt_type.lower() == "eg":
-            self.exp_optimizer = ExtraAdam(list(self.exp_actor.parameters()),
-                                       lr=exp_optim_config["lr"],
-                                       betas=(exp_optim_config["beta_1"], exp_optim_config["beta_2"]),
-                                       weight_decay=exp_optim_config["weight_decay"])
-        elif self.exp_opt_type.lower() == "om":
-            self.exp_optimizer = OptimisticAdam(list(self.exp_actor.parameters()),
-                                            lr=exp_optim_config["lr"],
-                                            betas=(exp_optim_config["beta_1"], exp_optim_config["beta_2"]),
-                                            weight_decay=exp_optim_config["weight_decay"])
+            
+    def eval(self):
+        self.critic.eval()
+        self.actor.eval()
+
+    def train(self):
+        self.critic.train()
+        self.actor.train()
             
     def compute_value_loss(self, values, targets, rewards):
         values = torch.permute(torch.stack(values).reshape(-1, self.batch_size), (1, 0))[:, 0:-1]
@@ -334,67 +312,60 @@ class VIPAgentIPD(BaseAgent):
         value_loss = (values - est_values).flatten().norm(dim=0, p=2)
         return value_loss
     
-    def compute_reinforce_loss(self, log_probs, rewards_a, rewards_b):
-        rewards = (torch.permute(torch.stack(rewards_a).reshape(self.rollout_len, -1), (1, 0)) +
-                   torch.permute(torch.stack(rewards_b).reshape(self.rollout_len, -1), (1, 0)))
-        
+    def compute_reinforce_loss(self, log_probs_a, log_probs_b, states_a, rewards_a, rewards_b, hiddens_a, values_b, causal_rewards_b):
+        states_a = torch.permute(torch.stack(states_a), (1, 0, 2))
+        rewards_a = torch.permute(torch.stack(rewards_a).reshape(self.rollout_len, -1), (1, 0))
+        rewards_b = torch.permute(torch.stack(rewards_b).reshape(self.rollout_len, -1), (1, 0))
+        log_probs_a = torch.permute(torch.stack(log_probs_a).reshape(self.rollout_len, -1), (1, 0))
+        log_probs_b = torch.permute(torch.stack(log_probs_b).reshape(self.rollout_len, -1), (1, 0))
+        hiddens_a = torch.permute(torch.stack(hiddens_a).reshape(self.rollout_len, self.batch_size, -1)[0:-1, :, :], (1, 0, 2))
+        values_b = torch.permute(torch.stack(values_b).reshape(self.rollout_len, self.batch_size), (1, 0))
+
         gammas = torch.tensor(self.gamma).repeat(self.batch_size, self.rollout_len - 1).to(self.device)
         gammas = torch.exp(torch.cumsum(torch.log(gammas), dim=1))
         gammas = torch.cat([torch.ones(self.batch_size, 1).to(self.device), gammas], dim=1)
-
-        returns = torch.sum(rewards*gammas, dim=1)
         
-        log_probs_perm = torch.permute(torch.stack(log_probs), (1, 0))
-        sum_log_probs = torch.sum(log_probs_perm, dim=1)
+        h_s, values_no_hidden_a = self.target.batch_forward(states_a.reshape(-1, self.n_actions*2)[0:self.batch_size, :])
+        h_t, values_hidden_a = self.target.batch_forward(states_a.reshape(-1, self.n_actions*2)[self.batch_size:, :], 
+                                                         hiddens_a.reshape(1, -1, self.actor.hidden_size))
+        values_a = torch.cat([values_no_hidden_a, values_hidden_a], dim=1).reshape(self.batch_size, self.rollout_len).detach()
+        curr_state_vals_a = values_a[:, 0:-1]
+        next_state_vals_a = values_a[:, 1:]
 
-        pg_loss = torch.mean(returns * sum_log_probs)
-        return pg_loss
+        advantages = rewards_a[:, 0:-1] + (self.gamma*next_state_vals_a - curr_state_vals_a).detach()
+        advantages = (advantages - torch.mean(advantages))/torch.std(advantages)
+
+        future_returns_b = []
+        for i in range(self.rollout_len):
+            if i>0:
+                future_returns_b.append(torch.sum(causal_rewards_b[i][:, i:] * gammas[:, :-i], dim=1))
+            else:
+                future_returns_b.append(torch.sum(causal_rewards_b[i][:, i:] * gammas, dim=1))
+
+        future_returns_b = torch.permute(torch.stack(future_returns_b), (1, 0)) - values_b.detach()
+        future_returns_b = (future_returns_b - torch.mean(future_returns_b))/torch.std(future_returns_b)
+
+        positive_adv_ratio = torch.sum(advantages>0)/(advantages.shape[0]*advantages.shape[1])
+        positive_ret_ratio = torch.sum(future_returns_b>0)/(future_returns_b.shape[0]*future_returns_b.shape[1])
+
+        mask=(advantages<0)*(future_returns_b[:, 1:]>0)
+        # mask= torch.torch.logical_not((advantages<0)*(future_returns_b[:, 1:]<0))
+        # mask = torch.ones(self.batch_size, self.rollout_len-1).to(self.device) -2*(advantages<0)*(future_returns_b[:, 1:]<0)
+
+        pg_loss = torch.mean(torch.sum(log_probs_a[:, 0:-1] * advantages * gammas[:, 0:-1], dim=1))
+        inf_loss = torch.mean(torch.sum(future_returns_b[:, 0:-1] * advantages * mask, dim=1))
+
+        # future_log_probs_a = torch.flip(torch.cumsum(torch.flip(log_probs_a, [1]), 1), [1])
+        # mask_ex = torch.torch.logical_not((advantages<0)*(returns_b[:, 1:]<0))
+        # mask_neg = -1*(advantages<0)*(returns_b[:, 1:]>0)
+        # mask = torch.logical_or((advantages<0)*(returns_b[:, 1:]>0), (advantages>0)*(returns_b[:, 1:]>0))
+        # mask = torch.logical_or(mask, (advantages>0)*(returns_b[:, 1:]<0))
+
         
+        # inf_loss = torch.mean(torch.sum(future_log_probs_a[:, 0:-1] * returns_b[:, 0:-1] * advantages * mask, dim=1))
+
+        return pg_loss - self.inf_weight * inf_loss, positive_adv_ratio, positive_ret_ratio
     
-    def compute_pg_loss(self, 
-                        log_probs_a, 
-                        log_probs_b, 
-                        states, 
-                        rewards, 
-                        action_probs_a, 
-                        action_probs_b,
-                        exp_action_probs_a,
-                        exp_action_probs_b,
-                        hiddens):
-        
-        states = torch.permute(torch.stack(states), (1, 0, 2))
-        rewards = torch.permute(torch.stack(rewards).reshape(self.rollout_len, -1), (1, 0))[:, 0:-1]
-        action_probs_a = torch.permute(torch.stack(action_probs_a).detach(), (1, 0))[:, 0:-1]
-        action_probs_b = torch.permute(torch.stack(action_probs_b).detach(), (1, 0))[:, 0:-1]
-        exp_action_probs_a = torch.permute(torch.stack(exp_action_probs_a).detach(), (1, 0))[:, 0:-1]
-        exp_action_probs_b = torch.permute(torch.stack(exp_action_probs_b).detach(), (1, 0))[:, 0:-1]
-        hiddens = torch.permute(torch.stack(hiddens).reshape(self.rollout_len, self.batch_size, -1)[0:-1, :, :], (1, 0, 2))
-
-        importance_weights = torch.div((action_probs_a * action_probs_b), (exp_action_probs_a * exp_action_probs_b))
-
-        gammas = torch.tensor(self.gamma).repeat(self.batch_size, self.rollout_len - 1).to(self.device)
-        gammas = torch.exp(torch.cumsum(torch.log(gammas), dim=1))
-        gammas = torch.cat([torch.ones(self.batch_size, 1).to(self.device), gammas], dim=1)[:, 0:-1]
-
-        h_s, values_no_hidden = self.target.batch_forward(states.reshape(-1, self.n_actions*2)[0:self.batch_size, :])
-        h_t, values_hidden = self.target.batch_forward(states.reshape(-1, self.n_actions*2)[self.batch_size:, :], 
-                                                       hiddens.reshape(1, -1, self.actor.hidden_size))
-        values = torch.cat([values_no_hidden, values_hidden], dim=1).reshape(self.batch_size, self.rollout_len)
-        curr_state_vals = values[:, 0:-1]
-        next_state_vals = values[:, 1:]
-
-        advantages = rewards + (self.gamma*next_state_vals - curr_state_vals).detach()
-
-        log_probs_a_perm = torch.permute(torch.stack(log_probs_a), (1, 0))[:, 0:-1]
-        log_probs_b_perm = torch.permute(torch.stack(log_probs_b), (1, 0))[:, 0:-1]
-        
-        pg_loss = torch.mean(torch.sum(importance_weights * log_probs_a_perm * advantages * gammas, dim=1))
-        inf_loss =  torch.mean(torch.sum(importance_weights * log_probs_b_perm * advantages * gammas, dim=1))
-        # import pdb; pdb.set_trace()
-
-        return pg_loss + self.inf_weight * inf_loss
-
-
 class VIPAgent(BaseAgent):
     def __init__(self,
                  config,

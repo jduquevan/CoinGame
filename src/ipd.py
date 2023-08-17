@@ -19,7 +19,7 @@ class IPD(gym.Env):
         a1 = a1.float()
         a2 = a2.float()
 
-        payout_T = torch.transpose(self.payout, 2, 1) 
+        payout_T = torch.transpose(self.payout, 2, 1)
         r1 = torch.bmm(torch.bmm(a1, self.payout), a2)
         r2 = torch.bmm(torch.bmm(a1, payout_T), a2)
 

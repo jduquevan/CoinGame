@@ -23,7 +23,7 @@ class IPD(gym.Env):
         r1 = torch.bmm(torch.bmm(a1, self.payout), a2)
         r2 = torch.bmm(torch.bmm(a1, payout_T), a2)
 
-        return (obs_1.float(), obs_2.float()), (r1, r2), {}
+        return (obs_1.float(), obs_2.float()), (r1, r2), {}, {}
 
     def reset(self):
         return torch.ones(self.batch_size, 2 * self.n_actions).to(self.device), {}

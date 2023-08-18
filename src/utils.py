@@ -205,8 +205,6 @@ class WandbLogger():
     def log_wandb_info(self,
                        agent_1,
                        agent_2,
-                       action_1, 
-                       action_2,
                        r1, 
                        r2, 
                        pg_loss_1, 
@@ -216,9 +214,6 @@ class WandbLogger():
                        c_score_1=None,
                        d_score_2=None,
                        c_score_2=None,
-                       obs=None,
-                       kl_1=None,
-                       kl_2=None,
                        adv_1=None,
                        adv_2=None,
                        em_1=None,
@@ -228,13 +223,7 @@ class WandbLogger():
                        t_r1=None,
                        t_r2=None,
                        a_1=None,
-                       a_2=None,
-                       uc_1=None,
-                       uc_2=None,
-                       ud_1=None,
-                       ud_2=None,
-                       ua_1=None,
-                       ua_2=None):
+                       a_2=None):
                        
         self.cum_steps = self.cum_steps + 1
         self.avg_reward_1.insert(0, r1)
@@ -282,28 +271,8 @@ class WandbLogger():
         if len(self.easy_misses_2)==self.reward_window:
             em_2 = sum(self.easy_misses_2)/len(self.easy_misses_2)
 
-        norms = []
-        grad_norms = []
-        for model in [agent_1.qa_module, agent_1.actor, agent_2.qa_module, agent_2.actor]:
-            total_norm = 0
-            total_grad_norm = 0
-            for p in model.parameters():
-                param_norm = p.detach().data.norm(2)
-                grad_norm = p.grad.detach().data.norm(2)
-                total_norm += param_norm
-                total_grad_norm += grad_norm
-            norms.append(total_norm)
-            grad_norms.append(total_grad_norm)
 
         wandb_info = {}
-        wandb_info['qa_norm_1'] = norms[0]
-        wandb_info['actor_norm_1'] = norms[1]
-        wandb_info['qa_norm_2'] = norms[2]
-        wandb_info['actor_norm_2'] = norms[3]
-        wandb_info['qa_grad_norm_1'] = grad_norms[0]
-        wandb_info['actor_grad_norm_1'] = grad_norms[1]
-        wandb_info['qa_grad_norm_2'] = grad_norms[2]
-        wandb_info['actor_grad_norm_2'] = grad_norms[3]
         wandb_info['cum_steps'] = self.cum_steps
         wandb_info['agent_1_avg_reward'] = avg_1
         wandb_info['agent_2_avg_reward'] = avg_2
@@ -314,8 +283,6 @@ class WandbLogger():
         wandb_info['defect_score_2'] = d_score_2
         wandb_info['coop_score_1'] = c_score_1
         wandb_info['coop_score_2'] = c_score_2
-        wandb_info['kl_1'] = kl_1
-        wandb_info['kl_2'] = kl_2
         wandb_info['adversity_1'] = adv_1
         wandb_info['adversity_2'] = adv_2
         wandb_info['easy_misses_1'] = em_1
@@ -326,12 +293,5 @@ class WandbLogger():
         wandb_info['training_return_2'] = t_r2
         wandb_info['self_score_1'] = a_1
         wandb_info['self_score_2'] = a_2
-
-        wandb_info['unconditioned_c_score_1'] = uc_1
-        wandb_info['unconditioned_c_score_2'] = uc_2
-        wandb_info['unconditioned_d_score_1'] = ud_1
-        wandb_info['unconditioned_d_score_2'] = ud_2
-        wandb_info['unconditioned_s_score_1'] = ua_1
-        wandb_info['unconditioned_s_score_2'] = ua_2
 
         wandb.log(wandb_info)

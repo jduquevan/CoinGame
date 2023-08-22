@@ -7,7 +7,7 @@ import numpy as np
 
 from omegaconf import DictConfig, OmegaConf
 
-from .agents import VIPAgent, VIPAgentIPD, AlwaysCooperateAgent, AlwaysDefectAgent
+from .agents import VIPAgent, AlwaysCooperateAgent, AlwaysDefectAgent
 from .algos import run_vip, run_vip_ipd
 from .coin_game import OGCoinGameGPU
 from .ipd import IPD
@@ -42,13 +42,13 @@ def main(args: DictConfig):
         obs, _ = env.reset()
         
         agent_1 = VIPAgent(config["base_agent"],
-                           **config["vip_agent_ipd"],
+                           **config["vip_agent"],
                            device=device,
                            n_actions=n_actions,
                            obs_shape=obs[0].shape,
                            is_cg=True)
         agent_2 = VIPAgent(config["base_agent"],
-                           **config["vip_agent_ipd"],
+                           **config["vip_agent"],
                            device=device, 
                            n_actions=n_actions,
                            obs_shape=obs[0].shape,
@@ -59,7 +59,7 @@ def main(args: DictConfig):
 
         run_vip_ipd(env=env, 
                     agent_a=agent_1, 
-                    agent_b=agent_2, 
+                    agent_b=agent_1, 
                     reward_window=reward_window, 
                     device=device,
                     target_update=target_update,
@@ -77,13 +77,13 @@ def main(args: DictConfig):
         obs, _ = env.reset()
         
         agent_1 = VIPAgent(config["base_agent"],
-                           **config["vip_agent_ipd"],
+                           **config["vip_agent"],
                            device=device,
                            n_actions=n_actions,
                            obs_shape=obs[0].shape,
                            is_cg=False)
         agent_2 = VIPAgent(config["base_agent"],
-                           **config["vip_agent_ipd"],
+                           **config["vip_agent"],
                            device=device,
                            n_actions=n_actions,
                            obs_shape=obs[0].shape,

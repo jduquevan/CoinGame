@@ -11,7 +11,9 @@ def add_gaussian_noise(model, weight, device):
 
 def compute_entropy(dists, n_actions):
     dists = torch.stack(dists).reshape((-1, n_actions))
-    entropy = -torch.mean(torch.sum(dists * torch.log(dists), dim=1))
+    p_log_p = dists * torch.log(dists)
+    filtered_p_log_p = torch.nan_to_num(p_log_p)
+    entropy = -torch.mean(torch.sum(filtered_p_log_p, dim=1))
     return entropy
 
 def save_state_dict(model, path):

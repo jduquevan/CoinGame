@@ -13,7 +13,7 @@ wandb_dir: /network/scratch/j/juan.duque/wandb/
 reset_every: 1000
 target_update: 10
 milestones: [200, 400]
-entropy_weight: 0.05
+entropy_weight: 0.07
 env:
   max_steps: 50
   split_coins: False
@@ -24,9 +24,9 @@ base_agent:
   critic_opt_type: "adam"
   exp_opt_type: "eg"
   other_opt_type: "adam"
-vip_agent_ipd:
+vip_agent:
   optim_config:
-    lr: 0.0001
+    lr: 0.0002
     momentum: 0.9
     weight_decay: 0
     beta_1: 0.9
@@ -37,30 +37,8 @@ vip_agent_ipd:
     weight_decay: 0
     beta_1: 0.9
     beta_2: 0.999
-  batch_size: 4000
+  batch_size: 8000
   rollout_len: 50
   hidden_size: 64
   entropy_weight: 1
-  inf_weight: 1
-vip_agent:
-  optim_config:
-    lr: 0.0005
-    momentum: 0.9
-    weight_decay: 0
-    beta_1: 0.9
-    beta_2: 0.999
-  inf_optim_config:
-    lr: 0.001
-    momentum: 0.9
-    weight_decay: 0
-    beta_1: 0.9
-    beta_2: 0.999
-  batch_size: 4000
-  rollout_len: 50
-  representation_size: 28
-  hidden_size: 32
-  history_len: 8
-  collab_weight: 1
-  exploit_weight: 1
-  entropy_weight: 0
-  rep_dropout: 1.0
+  inf_weight: 0.4

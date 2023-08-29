@@ -14,7 +14,7 @@ wandb_dir: /network/scratch/j/juan.duque/wandb/
 reset_every: 1000
 target_update: 10
 milestones: [200, 400]
-entropy_weight: 0.1
+entropy_weight: 0.05
 env:
   max_steps: 50
   split_coins: False
@@ -42,4 +42,5 @@ vip_agent:
   rollout_len: 20
   hidden_size: 64
   entropy_weight: 1
-  inf_weight: 0.05
+  inf_weight: 0.2
+  noisy: True

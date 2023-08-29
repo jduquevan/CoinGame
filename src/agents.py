@@ -66,6 +66,7 @@ class VIPAgent(BaseAgent):
                  hidden_size,
                  entropy_weight,
                  inf_weight,
+                 noisy,
                  device,
                  n_actions,
                  obs_shape,
@@ -81,6 +82,7 @@ class VIPAgent(BaseAgent):
         self.hidden_size = hidden_size
         self.entropy_weight = entropy_weight
         self.inf_weight = inf_weight
+        self.noisy = noisy
         self.n_actions = n_actions
         self.is_cg = is_cg
         self.transition: list = list()
@@ -93,13 +95,16 @@ class VIPAgent(BaseAgent):
         self.actor = VIPActorIPD(in_size=self.in_size,
                                  out_size=self.n_actions,
                                  device=self.device,
-                                 hidden_size=self.hidden_size)
+                                 hidden_size=self.hidden_size,
+                                 noisy=self.noisy)
         self.critic = VIPCriticIPD(in_size=self.in_size,
                                    device=self.device,
-                                   hidden_size=self.hidden_size)
+                                   hidden_size=self.hidden_size,
+                                   noisy=self.noisy)
         self.target = VIPCriticIPD(in_size=self.in_size,
                                    device=self.device,
-                                   hidden_size=self.hidden_size)
+                                   hidden_size=self.hidden_size,
+                                   noisy=self.noisy)
         self.actor.to(self.device)
         self.critic.to(self.device)
         self.target.to(self.device)
@@ -230,13 +235,14 @@ class VIPAgent(BaseAgent):
         # mask= torch.torch.logical_not((advantages<0)*(future_returns_b[:, 1:]<0))
         # mask = torch.ones(self.batch_size, self.rollout_len-1).to(self.device) -1*(advantages<0)*(future_returns_b[:, 1:]<0)
 
-        pg_loss = torch.mean(torch.sum(log_probs_a[:, 0:-1] * advantages * gammas[:, 0:-1], dim=1))
-
         if is_loaded:
+            diced_returns_a = compute_loaded_dice(log_probs_a, rev_gammas, advantages, self.device)
             mask = 1*(advantages<0)*(advantages_b>0)
+            pg_loss = torch.mean(diced_returns_a)
             inf_loss = torch.mean(torch.sum(diced_returns_b * advantages * mask, dim=1))
         else:
             mask = 1*(advantages<0)*(future_returns_b[:, 1:]>0)
+            pg_loss = torch.mean(torch.sum(log_probs_a[:, 0:-1] * advantages * gammas[:, 0:-1], dim=1))
             inf_loss = torch.mean(torch.sum(future_returns_b[:, 0:-1] * advantages * mask, dim=1))
 
         # future_log_probs_a = torch.flip(torch.cumsum(torch.flip(log_probs_a, [1]), 1), [1])

@@ -61,7 +61,7 @@ def main(args: DictConfig):
         if version=="v1":
             run_vip(env=env, 
                     agent_a=agent_1, 
-                    agent_b=agent_1, 
+                    agent_b=agent_2, 
                     reward_window=reward_window, 
                     device=device,
                     target_update=target_update,

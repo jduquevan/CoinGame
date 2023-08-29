@@ -38,8 +38,6 @@ def compute_loaded_dice(log_probs, rev_gammas, advantages, device):
     j_vals = torch.permute(torch.stack(j_vals), (1, 0))
     return torch.sum(j_vals, dim=1)
 
-    
-
 def get_metrics(env):
     adv_1, adv_2, em_1, em_2 = None, None, None, None
 

@@ -328,6 +328,10 @@ def run_vip(env,
     scheduler_b = MultiStepLR(agent_b.optimizer, milestones=[10000], gamma=0.5, last_epoch=-1, verbose=False)
     rollout_len = agent_a.rollout_len
     for t in count():
+        if agent_a.noisy:
+            agent_a.actor.sample_noise()
+            agent_a.critic.sample_noise()
+            agent_a.target.sample_noise()
         return_dict = get_ipd_trajectories(env, rollout_len, agent_a, agent_b, entropy_weight, is_cg)
         states_trajectory_a = return_dict["states_a"]
 
@@ -349,6 +353,10 @@ def run_vip(env,
                                                                                      is_cg)
         optimize_loss(agent_a.opt_type, agent_a.optimizer, pg_loss_a, t, scheduler_a)
 
+        if agent_b.noisy:
+            agent_b.actor.sample_noise()
+            agent_b.critic.sample_noise()
+            agent_b.target.sample_noise()
         return_dict = get_ipd_trajectories(env, rollout_len, agent_b, agent_a, entropy_weight, is_cg)
         states_trajectory_b = return_dict["states_a"]
 

@@ -5,6 +5,7 @@ hydra:
 
 seed: 1
 env_type: "cg"
+version: "v1"
 reward_window: 7
 grad_max_norm: 1
 evaluate_every: 50
@@ -13,7 +14,7 @@ wandb_dir: /network/scratch/j/juan.duque/wandb/
 reset_every: 1000
 target_update: 10
 milestones: [200, 400]
-entropy_weight: 0.07
+entropy_weight: 0.05
 env:
   max_steps: 50
   split_coins: False
@@ -26,7 +27,7 @@ base_agent:
   other_opt_type: "adam"
 vip_agent:
   optim_config:
-    lr: 0.0002
+    lr: 0.007
     momentum: 0.9
     weight_decay: 0
     beta_1: 0.9
@@ -41,4 +42,5 @@ vip_agent:
   rollout_len: 20
   hidden_size: 64
   entropy_weight: 1
-  inf_weight: 0.4
+  inf_weight: 0.2
+  noisy: True

@@ -5,9 +5,9 @@ import torch.optim as optim
 
 from functools import reduce
 
-from .models import VIPActor, VIPActorIPD, VIPCriticIPD, HistoryAggregator
+from .models import VIPActor, VIPActorIPD, VIPCriticIPD, VIPCritic
 from .optimizers import ExtraAdam, OptimisticAdam
-from .utils import magic_box
+from .utils import magic_box, compute_loaded_dice
 
 class BaseAgent():
     def __init__(self,
@@ -66,6 +66,7 @@ class VIPAgent(BaseAgent):
                  hidden_size,
                  entropy_weight,
                  inf_weight,
+                 noisy,
                  device,
                  n_actions,
                  obs_shape,
@@ -81,6 +82,7 @@ class VIPAgent(BaseAgent):
         self.hidden_size = hidden_size
         self.entropy_weight = entropy_weight
         self.inf_weight = inf_weight
+        self.noisy = noisy
         self.n_actions = n_actions
         self.is_cg = is_cg
         self.transition: list = list()
@@ -93,13 +95,16 @@ class VIPAgent(BaseAgent):
         self.actor = VIPActorIPD(in_size=self.in_size,
                                  out_size=self.n_actions,
                                  device=self.device,
-                                 hidden_size=self.hidden_size)
+                                 hidden_size=self.hidden_size,
+                                 noisy=self.noisy)
         self.critic = VIPCriticIPD(in_size=self.in_size,
                                    device=self.device,
-                                   hidden_size=self.hidden_size)
+                                   hidden_size=self.hidden_size,
+                                   noisy=self.noisy)
         self.target = VIPCriticIPD(in_size=self.in_size,
                                    device=self.device,
-                                   hidden_size=self.hidden_size)
+                                   hidden_size=self.hidden_size,
+                                   noisy=self.noisy)
         self.actor.to(self.device)
         self.critic.to(self.device)
         self.target.to(self.device)
@@ -164,7 +169,7 @@ class VIPAgent(BaseAgent):
         value_loss = (values - est_values).flatten().norm(dim=0, p=2)
         return value_loss
     
-    def compute_reinforce_loss(self, log_probs_a, log_probs_b, states_a, rewards_a, rewards_b, hiddens_a, values_b, causal_rewards_b, is_cg):
+    def compute_reinforce_loss(self, log_probs_a, log_probs_b, states_a, rewards_a, rewards_b, hiddens_a, values_b, causal_rewards_b, is_cg, is_loaded=False):
         states_a = torch.permute(torch.stack(states_a), (1, 0, 2))
         rewards_a = torch.permute(torch.stack(rewards_a).reshape(self.rollout_len, -1), (1, 0))
         rewards_b = torch.permute(torch.stack(rewards_b).reshape(self.rollout_len, -1), (1, 0))
@@ -190,30 +195,55 @@ class VIPAgent(BaseAgent):
         curr_state_vals_a = values_a[:, 0:-1]
         next_state_vals_a = values_a[:, 1:]
 
+        curr_state_vals_b = values_b[:, 0:-1]
+        next_state_vals_b = values_b[:, 1:]
+
         advantages = rewards_a[:, 0:-1] + (self.gamma*next_state_vals_a - curr_state_vals_a).detach()
         advantages = (advantages - torch.mean(advantages))/torch.std(advantages)
 
-        future_returns_b = []
-        for i in range(self.rollout_len):
-            if i>0:
-                future_returns_b.append(torch.sum(causal_rewards_b[i][:, i:] * gammas[:, :-i], dim=1))
-            else:
-                future_returns_b.append(torch.sum(causal_rewards_b[i][:, i:] * gammas, dim=1))
+        advantages_b = rewards_b[:, 0:-1] + (self.gamma*next_state_vals_b - curr_state_vals_b).detach()
+        advantages_b = (advantages_b - torch.mean(advantages_b))/torch.std(advantages_b)
 
-        future_returns_b = torch.permute(torch.stack(future_returns_b), (1, 0)) - values_b.detach()
-        future_returns_b = (future_returns_b - torch.mean(future_returns_b))/torch.std(future_returns_b)
+        if is_loaded:
+            diced_returns_b = []
+            rev_gammas = torch.flip(gammas, dims=(1,))
+            for i in range(self.rollout_len-1):
+                diced_returns_b.append(compute_loaded_dice(log_probs_a[:, i:],
+                                                           rev_gammas[:, i:],
+                                                           advantages_b[:, i:],
+                                                           self.device))
+            diced_returns_b = torch.permute(torch.stack(diced_returns_b), (1, 0))
+            positive_ret_ratio = torch.sum(diced_returns_b>0)/(diced_returns_b.shape[0]*diced_returns_b.shape[1])
+        else:
+            future_returns_b = []
+            for i in range(self.rollout_len):
+                if i > 0:
+                    future_returns_b.append(torch.sum(causal_rewards_b[i][:, i:] * gammas[:, :-i], dim=1))
+                else:
+                    future_returns_b.append(torch.sum(causal_rewards_b[i][:, i:] * gammas, dim=1))
+            future_returns_b = torch.permute(torch.stack(future_returns_b), (1, 0)) - values_b.detach()
+            future_returns_b = (future_returns_b - torch.mean(future_returns_b))/torch.std(future_returns_b)
+            positive_ret_ratio = torch.sum(future_returns_b>0)/(future_returns_b.shape[0]*future_returns_b.shape[1])
 
         positive_adv_ratio = torch.sum(advantages>0)/(advantages.shape[0]*advantages.shape[1])
-        positive_ret_ratio = torch.sum(future_returns_b>0)/(future_returns_b.shape[0]*future_returns_b.shape[1])
 
-        # mask= torch.logical_or((advantages<0)*(future_returns_b[:, 1:]>0), (advantages>0)*(future_returns_b[:, 1:]<0))
-        mask=(advantages<0)*(future_returns_b[:, 1:]>0)
+        # mask= torch.logical_or((advantages<0)*(future_returns_b[:, 1:]>0), (advantages>0)*(future_returns_b[:, 1:]>0))
+        # mask = mask + 1*(advantages>0)*(future_returns_b[:, 1:]>0)
+        # mask = mask - 1*(advantages<0)*(future_returns_b[:, 1:]<0)
+        # mask = -1*(advantages>0)*(future_returns_b[:, 1:]<0)
         # mask=1*(advantages<0)*(future_returns_b[:, 1:]>0) - 1*(advantages<0)*(future_returns_b[:, 1:]<0)
         # mask= torch.torch.logical_not((advantages<0)*(future_returns_b[:, 1:]<0))
         # mask = torch.ones(self.batch_size, self.rollout_len-1).to(self.device) -1*(advantages<0)*(future_returns_b[:, 1:]<0)
 
-        pg_loss = torch.mean(torch.sum(log_probs_a[:, 0:-1] * advantages * gammas[:, 0:-1], dim=1))
-        inf_loss = torch.mean(torch.sum(future_returns_b[:, 0:-1] * advantages * mask, dim=1))
+        if is_loaded:
+            diced_returns_a = compute_loaded_dice(log_probs_a, rev_gammas, advantages, self.device)
+            mask = 1*(advantages<0)*(advantages_b>0)
+            pg_loss = torch.mean(diced_returns_a)
+            inf_loss = torch.mean(torch.sum(diced_returns_b * advantages * mask, dim=1))
+        else:
+            mask = 1*(advantages<0)*(future_returns_b[:, 1:]>0)
+            pg_loss = torch.mean(torch.sum(log_probs_a[:, 0:-1] * advantages * gammas[:, 0:-1], dim=1))
+            inf_loss = torch.mean(torch.sum(future_returns_b[:, 0:-1] * advantages * mask, dim=1))
 
         # future_log_probs_a = torch.flip(torch.cumsum(torch.flip(log_probs_a, [1]), 1), [1])
         # mask_ex = torch.torch.logical_not((advantages<0)*(returns_b[:, 1:]<0))

@@ -1,11 +1,11 @@
 #!/bin/bash
 SEEDS=(8)
-ALRS=(0.0005 0.001)
+ALRS=(0.007 0.005)
 CLRS=(0.01)
-OPTS=("adam" "om")
-INFS=(1)
-ENTS=(0.15 0.2 0.25)
-RLLS=(25)
+OPTS=("adam")
+INFS=(0.3 0.4)
+ENTS=(0.05 0.07)
+RLLS=(20)
 
 for alr in ${ALRS[@]}; do
     for clr in ${CLRS[@]}; do

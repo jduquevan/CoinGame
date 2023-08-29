@@ -38,7 +38,7 @@ vip_agent:
     beta_1: 0.9
     beta_2: 0.999
   batch_size: 8000
-  rollout_len: 50
+  rollout_len: 20
   hidden_size: 64
   entropy_weight: 1
   inf_weight: 0.4

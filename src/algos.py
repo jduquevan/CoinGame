@@ -12,44 +12,11 @@ from torch.optim.lr_scheduler import MultiStepLR
 from .optimizers import ExtraAdam
 from .utils import (WandbLogger, 
                     compute_entropy, 
-                    get_metrics, load_state_dict, 
+                    get_metrics, 
+                    load_state_dict, 
                     magic_box,
                     compute_ipd_probs, 
                     add_gaussian_noise)
-
-def optimize_losses(opt_type, opt_1, opt_2, loss_1, loss_2, t, scheduler):
-    if opt_type == "sgd" or opt_type == "adam":
-        opt_1.zero_grad()
-        opt_2.zero_grad()
-        loss_1.backward(retain_graph=True)
-        loss_2.backward(retain_graph=True)
-        opt_1.step()
-        opt_2.step()
-        loss_1.detach_()
-        loss_2.detach_()
-    elif opt_type == "eg":
-        loss_1 = -1 * loss_1
-        loss_2 = -1 * loss_2
-        opt_1.zero_grad()
-        opt_2.zero_grad()
-        loss_1.backward(retain_graph=True)
-        loss_2.backward(retain_graph=True)
-        if t % 2 == 0:
-            opt_1.extrapolation()
-            opt_2.extrapolation()
-        else:
-            opt_1.step()
-            opt_2.step()
-    elif opt_type == "om":
-        loss_1 = -1 * loss_1
-        loss_2 = -1 * loss_2
-        opt_1.zero_grad()
-        opt_2.zero_grad()
-        loss_1.backward(retain_graph=True)
-        loss_2.backward(retain_graph=True)
-        opt_1.step()
-        opt_2.step()
-    scheduler.step()
 
 def optimize_loss(opt_type, optimizer, loss, t, scheduler, maximize=True):
     if opt_type == "sgd" or opt_type == "adam":
@@ -343,18 +310,18 @@ def get_ipd_trajectories(env, rollout_len, agent_a, agent_b, entropy_weight, is_
 
     return return_dict
 
-def run_vip_ipd(env, 
-                agent_a, 
-                agent_b, 
-                reward_window, 
-                device, 
-                target_update, 
-                eval_every, 
-                entropy_weight, 
-                evaluation_steps, 
-                is_cg=False, 
-                always_cooperate=None,
-                always_defect=None):
+def run_vip(env, 
+            agent_a, 
+            agent_b, 
+            reward_window, 
+            device, 
+            target_update, 
+            eval_every, 
+            entropy_weight, 
+            evaluation_steps, 
+            is_cg=False, 
+            always_cooperate=None,
+            always_defect=None):
     
     logger = WandbLogger(device, reward_window)
     scheduler_a = MultiStepLR(agent_a.optimizer, milestones=[10000], gamma=0.5, last_epoch=-1, verbose=False)
@@ -378,6 +345,7 @@ def run_vip_ipd(env,
                                                                                      return_dict["hiddens_a"],
                                                                                      return_dict["values_b"],
                                                                                      return_dict["causal_rewards_b"],
+                                                                                     is_cg,
                                                                                      is_cg)
         optimize_loss(agent_a.opt_type, agent_a.optimizer, pg_loss_a, t, scheduler_a)
 
@@ -398,6 +366,7 @@ def run_vip_ipd(env,
                                                                                      return_dict["hiddens_a"],
                                                                                      return_dict["values_b"],
                                                                                      return_dict["causal_rewards_b"],
+                                                                                     is_cg,
                                                                                      is_cg)
         optimize_loss(agent_b.opt_type, agent_b.optimizer, pg_loss_b, t, scheduler_b)
 
@@ -445,166 +414,117 @@ def run_vip_ipd(env,
                                   ent_1=entropy_a.detach(),
                                   ent_2=entropy_b.detach(),
                                   a_1=a_1,
-                                  a_2=a_2)
+                                  a_2=a_2,
+                                  val_loss_1=val_loss_a.detach(),
+                                  val_loss_2=val_loss_b.detach())
         else:
             logger.log_wandb_ipd_info(r1=ra.detach(), 
-                                    r2=rb.detach(), 
-                                    ent_1=entropy_a.detach(), 
-                                    ent_2=entropy_b.detach(),
-                                    pg_loss_1=pg_loss_a.detach(),
-                                    pg_loss_2=pg_loss_b.detach(),
-                                    val_loss_1=val_loss_a.detach(),
-                                    val_loss_2=val_loss_b.detach(),
-                                    exp_ent_1=None,
-                                    exp_ent_2=None,
-                                    exp_r1=None,
-                                    exp_r2=None,
-                                    exp_loss_1=None,
-                                    exp_loss_2=None,
-                                    c_a=c_a.detach(),
-                                    c_b=c_b.detach(),
-                                    d_a=d_a.detach(),
-                                    d_b=d_b.detach(),
-                                    p_c_s_a=p_c_s_a.detach(),
-                                    p_c_cc_a=p_c_cc_a.detach(),
-                                    p_c_cd_a=p_c_cd_a.detach(),
-                                    p_c_dc_a=p_c_dc_a.detach(),
-                                    p_c_dd_a=p_c_dd_a.detach(),
-                                    p_c_s_b=p_c_s_b.detach(),
-                                    p_c_cc_b=p_c_cc_b.detach(),
-                                    p_c_cd_b=p_c_cd_b.detach(),
-                                    p_c_dc_b=p_c_dc_b.detach(),
-                                    p_c_dd_b=p_c_dd_b.detach(),
-                                    pos_adv_ratio_a=pos_adv_ratio_a.detach(),
-                                    pos_ret_ratio_a=pos_ret_ratio_a.detach(),
-                                    pos_adv_ratio_b=pos_adv_ratio_b.detach(),
-                                    pos_ret_ratio_b=pos_ret_ratio_b.detach())
+                                      r2=rb.detach(), 
+                                      ent_1=entropy_a.detach(), 
+                                      ent_2=entropy_b.detach(),
+                                      pg_loss_1=pg_loss_a.detach(),
+                                      pg_loss_2=pg_loss_b.detach(),
+                                      val_loss_1=val_loss_a.detach(),
+                                      val_loss_2=val_loss_b.detach(),
+                                      exp_ent_1=None,
+                                      exp_ent_2=None,
+                                      exp_r1=None,
+                                      exp_r2=None,
+                                      exp_loss_1=None,
+                                      exp_loss_2=None,
+                                      c_a=c_a.detach(),
+                                      c_b=c_b.detach(),
+                                      d_a=d_a.detach(),
+                                      d_b=d_b.detach(),
+                                      p_c_s_a=p_c_s_a.detach(),
+                                      p_c_cc_a=p_c_cc_a.detach(),
+                                      p_c_cd_a=p_c_cd_a.detach(),
+                                      p_c_dc_a=p_c_dc_a.detach(),
+                                      p_c_dd_a=p_c_dd_a.detach(),
+                                      p_c_s_b=p_c_s_b.detach(),
+                                      p_c_cc_b=p_c_cc_b.detach(),
+                                      p_c_cd_b=p_c_cd_b.detach(),
+                                      p_c_dc_b=p_c_dc_b.detach(),
+                                      p_c_dd_b=p_c_dd_b.detach(),
+                                      pos_adv_ratio_a=pos_adv_ratio_a.detach(),
+                                      pos_ret_ratio_a=pos_ret_ratio_a.detach(),
+                                      pos_adv_ratio_b=pos_adv_ratio_b.detach(),
+                                      pos_ret_ratio_b=pos_ret_ratio_b.detach())
         
-
-def run_vip(env,
-            eval_env,
-            obs, 
-            agent_1, 
-            agent_2,  
-            reward_window, 
-            device,
-            num_episodes,
-            n_actions,
-            evaluate_every=10,
-            evaluation_steps=10,
-            grad_max_norm=1,
-            kl_weight=1,
-            sp_weight=1,
-            always_cooperate=None,
-            always_defect=None,
-            greedy_p=0.5,
-            batch_size=1,
-            reset_every=1000):
-    # import pdb; pdb.set_trace()
+def run_vip_v2(env, 
+               agent_a, 
+               agent_b, 
+               reward_window, 
+               device, 
+               target_update, 
+               eval_every, 
+               entropy_weight, 
+               evaluation_steps, 
+               is_cg=False, 
+               always_cooperate=None,
+               always_defect=None):
+    
     logger = WandbLogger(device, reward_window)
-    steps_reset = agent_1.rollout_len
-    exploit_weight = 1
-    c_1, c_2, d_1, d_2 = None, None, None, None
+    scheduler_a = MultiStepLR(agent_a.optimizer, milestones=[10000], gamma=0.5, last_epoch=-1, verbose=False)
+    scheduler_b = MultiStepLR(agent_b.optimizer, milestones=[10000], gamma=0.5, last_epoch=-1, verbose=False)
+    rollout_len = agent_a.rollout_len
+    for t in count():
+        return_dict = get_ipd_trajectories(env, rollout_len, agent_a, agent_b, entropy_weight, is_cg)
+        states_trajectory_a = return_dict["states_a"]
 
-    scheduler_1 = MultiStepLR(agent_1.optimizer, milestones=[10000], gamma=0.5, last_epoch=-1, verbose=False)
-    scheduler_2 = MultiStepLR(agent_2.optimizer, milestones=[10000], gamma=0.5, last_epoch=-1, verbose=False)
-
-    for i_episode in range(num_episodes):
-        obs, _ = env.reset()
-        obs_1 = obs
-        obs_2 =  torch.clone(obs[:, torch.tensor([1, 0, 3, 2])])
+        entropy_a = compute_entropy(return_dict["dists_a"], agent_a.n_actions)
+        val_loss_a = agent_a.compute_value_loss(return_dict["values_a"], return_dict["targets_a"], return_dict["rewards_a"])
+        val_loss_b = agent_b.compute_value_loss(return_dict["values_b"], return_dict["targets_b"], return_dict["rewards_b"])
+        optimize_loss(agent_a.critic_opt_type, agent_a.critic_optimizer, val_loss_a, t, scheduler_a, maximize=False)
+        optimize_loss(agent_b.critic_opt_type, agent_b.critic_optimizer, val_loss_b, t, scheduler_b, maximize=False)
         
-        for t in count():
-            if t % reset_every == 0:
-                load_state_dict(agent_1.actor, "agent_1_init")
-                load_state_dict(agent_2.actor, "agent_2_init")
-            if t % steps_reset == 0:
-                h_1, h_2 = None, None
+        pg_loss_a, pos_adv_ratio_a, pos_ret_ratio_a = agent_a.compute_reinforce_loss(return_dict["log_probs_a"],
+                                                                                     return_dict["log_probs_b"],
+                                                                                     return_dict["states_a"],
+                                                                                     return_dict["rewards_a"],
+                                                                                     return_dict["rewards_b"],
+                                                                                     return_dict["hiddens_a"],
+                                                                                     return_dict["values_b"],
+                                                                                     return_dict["causal_rewards_b"],
+                                                                                     is_cg)
+        optimize_loss(agent_a.opt_type, agent_a.optimizer, pg_loss_a, t, scheduler_a)
+        
+        if t % target_update == 0:
+            agent_b.actor.load_state_dict(agent_a.actor.state_dict())
+            agent_b.critic.load_state_dict(agent_a.critic.state_dict())
 
-            state_1 = obs_1.reshape((batch_size, -1))
-            state_2 = obs_2.reshape((batch_size, -1))
-            
-            agent_1.action_models.clone_env_batch(env)
-            agent_2.action_models.clone_env_batch(env)
-           
-            h_1, action_1, rep_1 = agent_1.select_actions(state_1, state_2, agent_2, h_1, h_2, False)
-            h_2, action_2, rep_2 = agent_2.select_actions(state_2, state_1, agent_1, h_2, h_1, False)
+            agent_a.target.load_state_dict(agent_a.critic.state_dict())
+            agent_b.target.load_state_dict(agent_a.critic.state_dict())
 
-            h_1 = torch.permute(h_1, (1, 0, 2))
-            h_2 = torch.permute(h_2, (1, 0, 2))
-
-            kl_1 = agent_1.compute_kl_divergences(agent_2, state_1, state_2, h_1, h_2)
-            kl_2 = agent_2.compute_kl_divergences(agent_1, state_2, state_1, h_2, h_1)
-            
-            obs, r, _, _ = env.step([action_1, action_2])
-            obs_1, obs_2 = obs
-            r1, r2 = r
-            
+        if t % eval_every == 0:
+            c_1, c_2, d_1, d_2, a_1, a_2 = evaluate_agents(agent_a, 
+                                                           agent_b, 
+                                                           always_cooperate,
+                                                           always_defect,
+                                                           evaluation_steps, 
+                                                           env,
+                                                           agent_a.batch_size)
             adv_1, adv_2, em_1, em_2 = get_metrics(env)
+            ra = torch.mean(torch.stack(return_dict["rewards_b"])[:-1, :])
+            rb = torch.mean(torch.stack(return_dict["rewards_a"])[:-1, :])
 
-            agent_1.transition = [obs_1, obs_2, h_1, h_2]
-            agent_2.transition = [obs_2, obs_1, h_2, h_1]
 
-            agent_1.model.clone_env_batch(env)
-            agent_2.model.clone_env_batch(env)
-
-            greedy_1 = np.random.binomial(1, greedy_p)
-            greedy_2 = np.random.binomial(1, greedy_p)
-            
-            pg_loss_1, inf_loss_1 = agent_1.compute_pg_loss(agent_2, agent_t=1, greedy=greedy_1)
-            loss_1 = pg_loss_1 - kl_weight * kl_1
-            optimize_losses(agent_1.opt_type, agent_1.optimizer, agent_1.inf_optimizer, loss_1, inf_loss_1, t, scheduler_1)
-            pg_loss_2, inf_loss_2 = agent_2.compute_pg_loss(agent_1, agent_t=2, greedy=greedy_2)
-            loss_2 = pg_loss_2 - kl_weight * kl_2
-            optimize_losses(agent_2.opt_type, agent_2.optimizer, agent_2.inf_optimizer, loss_2, inf_loss_2, t, scheduler_2)
-
-            ent_1, ent_2 = None, None
-
-            if t % evaluate_every == 0:
-                c_1, c_2, d_1, d_2, a_1, a_2 = evaluate_agents(agent_1, 
-                                                               agent_2, 
-                                                               always_cooperate,
-                                                               always_defect,
-                                                               evaluation_steps, 
-                                                               eval_env,
-                                                               batch_size)
-                
-                uc_1, uc_2, ud_1, ud_2, ua_1, ua_2 = evaluate_agents(agent_1, 
-                                                                     agent_2, 
-                                                                     always_cooperate,
-                                                                     always_defect,
-                                                                     evaluation_steps, 
-                                                                     eval_env,
-                                                                     batch_size,
-                                                                     False)
-
-            logger.log_wandb_info(agent_1,
-                                  agent_2,
-                                  action_1, 
-                                  action_2, 
-                                  torch.mean(r1).detach(), 
-                                  torch.mean(r2).detach(), 
-                                  pg_loss_1, 
-                                  pg_loss_2,
-                                  device,
-                                  d_score_1=d_1,
-                                  c_score_1=c_1,
-                                  d_score_2=d_2,
-                                  c_score_2=c_2,
-                                  obs=obs_1,
-                                  kl_1=kl_1,
-                                  kl_2=kl_2,
-                                  adv_1=adv_1,
-                                  adv_2=adv_2,
-                                  em_1=em_1,
-                                  em_2=em_2,
-                                  ent_1=ent_1,
-                                  ent_2=ent_2,
-                                  a_1=a_1,
-                                  a_2=a_2,
-                                  uc_1=uc_1,
-                                  uc_2=uc_2,
-                                  ud_1=ud_1,
-                                  ud_2=ud_2,
-                                  ua_1=ua_1,
-                                  ua_2=ua_2)
+        logger.log_wandb_info(agent_a,
+                              agent_b, 
+                              ra.detach(), 
+                              rb.detach(), 
+                              pg_loss_a, 
+                              None,
+                              device,
+                              d_score_1=d_1,
+                              c_score_1=c_1,
+                              d_score_2=d_2,
+                              c_score_2=c_2,
+                              adv_1=adv_1,
+                              adv_2=adv_2,
+                              em_1=em_1,
+                              em_2=em_2,
+                              ent_1=entropy_a.detach(),
+                              ent_2=None,
+                              a_1=a_1,
+                              a_2=a_2)

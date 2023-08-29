@@ -23,6 +23,23 @@ def load_state_dict(model, path):
     state_dict = torch.load('./weights/'+ path +'.pt')
     model.load_state_dict(state_dict)
 
+def compute_loaded_dice(log_probs, rev_gammas, advantages, device):
+    batch_size, rollout_len = log_probs.shape
+    j_vals = []
+    for i in range(rollout_len-1):
+        mask = torch.cat([torch.ones(batch_size, i+1), torch.zeros(batch_size, rollout_len-i-1)], 
+                         dim=1).to(device)
+        curr_gammas = torch.cat([rev_gammas[:, rollout_len-i-1:], 
+                                 torch.zeros(batch_size, rollout_len-i-1).to(device)], dim=1)
+        w_sum = torch.sum(log_probs * mask * curr_gammas, dim=1)
+        v_sum = w_sum - log_probs[:, i]
+        deps = magic_box(w_sum) - magic_box(v_sum)
+        j_vals.append(deps*advantages[:, i])
+    j_vals = torch.permute(torch.stack(j_vals), (1, 0))
+    return torch.sum(j_vals, dim=1)
+
+    
+
 def get_metrics(env):
     adv_1, adv_2, em_1, em_2 = None, None, None, None
 
@@ -225,7 +242,9 @@ class WandbLogger():
                        t_r1=None,
                        t_r2=None,
                        a_1=None,
-                       a_2=None):
+                       a_2=None,
+                       val_loss_1=None,
+                       val_loss_2=None):
                        
         self.cum_steps = self.cum_steps + 1
         self.avg_reward_1.insert(0, r1)
@@ -295,5 +314,7 @@ class WandbLogger():
         wandb_info['training_return_2'] = t_r2
         wandb_info['self_score_1'] = a_1
         wandb_info['self_score_2'] = a_2
+        wandb_info['val_loss_1'] = val_loss_1
+        wandb_info['val_loss_2'] = val_loss_2
 
         wandb.log(wandb_info)

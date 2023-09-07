@@ -23,18 +23,27 @@ def load_state_dict(model, path):
     state_dict = torch.load('./weights/'+ path +'.pt')
     model.load_state_dict(state_dict)
 
-def compute_loaded_dice(log_probs, rev_gammas, advantages, device):
+def compute_loaded_dice(log_probs, rev_gammas, advantages, rewards, device, is_pg=False, max_len=8):
     batch_size, rollout_len = log_probs.shape
+    gammas = torch.flip(rev_gammas, dims=(1,))
     j_vals = []
-    for i in range(rollout_len-1):
+    if not is_pg:
+        k = min(rollout_len-1, max_len)
+    else:
+        k = rollout_len - 1 
+    for i in range(k):
+        if i==0:
+            r_0s = torch.sum(rewards * gammas, dim=1)
+        else:
+            r_0s = torch.sum(rewards[:, i:] * gammas[:, :-i], dim=1)
         mask = torch.cat([torch.ones(batch_size, i+1), torch.zeros(batch_size, rollout_len-i-1)], 
                          dim=1).to(device)
         curr_gammas = torch.cat([rev_gammas[:, rollout_len-i-1:], 
-                                 torch.zeros(batch_size, rollout_len-i-1).to(device)], dim=1)
+                                torch.zeros(batch_size, rollout_len-i-1).to(device)], dim=1)
         w_sum = torch.sum(log_probs * mask * curr_gammas, dim=1)
         v_sum = w_sum - log_probs[:, i]
         deps = magic_box(w_sum) - magic_box(v_sum)
-        j_vals.append(deps*advantages[:, i])
+        j_vals.append(deps*advantages[:, i] + r_0s)
     j_vals = torch.permute(torch.stack(j_vals), (1, 0))
     return torch.sum(j_vals, dim=1)
 

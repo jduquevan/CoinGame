@@ -6,37 +6,163 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
+from abc import ABC
 from collections import namedtuple, deque
 from torch.autograd import Variable
 from torch.distributions import Normal
 from torch.nn import init, Parameter
 
+Transition = namedtuple('Transition',
+                        ('states_a', 
+                         'rewards_a',
+                         'rewards_b',
+                         'log_probs_a',
+                         'log_probs_b',
+                         'hiddens_a',
+                         'values_b',
+                         'causal_rewards_b'))
+
 class RolloutBuffer:
-    def __init__(self):
-        self.states = []
-        self.logprobs_a = []
-        self.logprobs_b = []
-        self.rewards = []
-        self.dists = []
-        self.hists_a = []
-        self.hists_b = []
-        self.indices_a = []
-        self.indices_b = []
-    
-    def clear(self):
-        del self.states[:]
-        del self.logprobs_a[:]
-        del self.logprobs_b[:]
-        del self.rewards[:]
-        del self.dists[:]
-        del self.hists_a[:]
-        del self.hists_b[:]
-        del self.indices_a[:]
-        del self.indices_b[:]
+    def __init__(self, capacity):
+        self.memory = deque([], maxlen=capacity)
+
+    def push(self, *args):
+        """Save a transition"""
+        self.memory.append(Transition(*args))
+
+    def sample(self, batch_size):
+        return random.sample(self.memory, batch_size)
+
+    def __len__(self):
+        return len(self.memory)
+
+class AbstractNoisyLayer(nn.Module, ABC):
+    def __init__(
+            self,
+            input_features: int,
+            output_features: int,
+            sigma: float,
+    ):
+        super().__init__()
+
+        self.sigma = sigma
+        self.input_features = input_features
+        self.output_features = output_features
+
+        self.mu_bias = nn.Parameter(torch.FloatTensor(output_features))
+        self.sigma_bias = nn.Parameter(torch.FloatTensor(output_features))
+        self.mu_weight = nn.Parameter(torch.FloatTensor(output_features, input_features))
+        self.sigma_weight = nn.Parameter(torch.FloatTensor(output_features, input_features))
+
+        self.register_buffer('epsilon_input', torch.FloatTensor(input_features))
+        self.register_buffer('epsilon_output', torch.FloatTensor(output_features))
+
+    def forward(
+            self,
+            x: torch.Tensor,
+            sample_noise: bool = True
+    ) -> torch.Tensor:
+        if not self.training:
+            return nn.functional.linear(x, weight=self.mu_weight, bias=self.mu_bias)
+
+        if sample_noise:
+            self.sample_noise()
+
+        return nn.functional.linear(x, weight=self.weight, bias=self.bias)
+
+    @property
+    def weight(self) -> torch.Tensor:
+        raise NotImplementedError
+
+    @property
+    def bias(self) -> torch.Tensor:
+        raise NotImplementedError
+
+    def sample_noise(self) -> None:
+        raise NotImplementedError
+
+    def parameter_initialization(self) -> None:
+        raise NotImplementedError
+
+    def get_noise_tensor(self, features: int) -> torch.Tensor:
+        noise = torch.FloatTensor(features).uniform_(-self.bound, self.bound).to(self.mu_bias.device)
+        return torch.sign(noise) * torch.sqrt(torch.abs(noise))
+
+
+class IndependentNoisyLayer(AbstractNoisyLayer):
+    def __init__(
+            self,
+            input_features: int,
+            output_features: int,
+            sigma: float = 0.017,
+    ):
+        super().__init__(
+            input_features=input_features,
+            output_features=output_features,
+            sigma=sigma
+        )
+
+        self.bound = (3 / input_features) ** 0.5
+        self.parameter_initialization()
+        self.sample_noise()
+
+    @property
+    def weight(self) -> torch.Tensor:
+        return self.sigma_weight * self.epsilon_weight[0] + self.mu_weight
+
+    @property
+    def bias(self) -> torch.Tensor:
+        return self.sigma_bias * self.epsilon_bias + self.mu_bias
+
+    def sample_noise(self) -> None:
+        self.epsilon_bias = self.get_noise_tensor((self.output_features,))
+        self.epsilon_weight = self.get_noise_tensor((self.output_features, self.input_features))
+
+    def parameter_initialization(self) -> None:
+        self.sigma_bias.data.fill_(self.sigma)
+        self.sigma_weight.data.fill_(self.sigma)
+        self.mu_bias.data.uniform_(-self.bound, self.bound)
+        self.mu_weight.data.uniform_(-self.bound, self.bound)
+
+
+class FactorisedNoisyLayer(AbstractNoisyLayer):
+    def __init__(
+            self,
+            input_features: int,
+            output_features: int,
+            sigma: float = 0.5,
+    ):
+        super().__init__(
+            input_features=input_features,
+            output_features=output_features,
+            sigma=sigma
+        )
+
+        self.bound = input_features**(-0.5)
+        self.parameter_initialization()
+        self.sample_noise()
+
+    @property
+    def weight(self) -> torch.Tensor:
+        return self.sigma_weight * torch.ger(self.epsilon_output, self.epsilon_input) + self.mu_weight
+
+    @property
+    def bias(self) -> torch.Tensor:
+        return self.sigma_bias * self.epsilon_output + self.mu_bias
+
+    def sample_noise(self) -> None:
+        self.epsilon_input = self.get_noise_tensor(self.input_features)
+        self.epsilon_output = self.get_noise_tensor(self.output_features)
+
+    def parameter_initialization(self) -> None:
+        self.mu_bias.data.uniform_(-self.bound, self.bound)
+        self.sigma_bias.data.fill_(self.sigma * self.bound)
+        self.mu_weight.data.uniform_(-self.bound, self.bound)
+        self.sigma_weight.data.fill_(self.sigma * self.bound)
 
 # Noisy linear layer with independent Gaussian noise
 class NoisyLinear(nn.Linear):
-    def __init__(self, in_features, out_features, device, sigma_init=0.017, bias=True):
+    def __init__(self, in_features, out_features, device, sigma_init=0.1, bias=True):
         super(NoisyLinear, self).__init__(in_features, out_features, bias=True)  # TODO: Adapt for no bias
         # µ^w and µ^b reuse self.weight and self.bias
         self.sigma_init = sigma_init
@@ -76,30 +202,36 @@ class VIPActorIPD(nn.Module):
         self.device = device
         self.hidden_size = hidden_size
 
-        self.gru = nn.GRU(in_size, hidden_size, num_layers, batch_first=True)
+        self.gru = nn.GRU(hidden_size, hidden_size, num_layers, batch_first=True)
         if noisy:
-            self.hidden = NoisyLinear(hidden_size, hidden_size, device)
-            self.linear = NoisyLinear(hidden_size, out_size, device)
+            self.first = FactorisedNoisyLayer(in_size, hidden_size)
+            self.hidden = FactorisedNoisyLayer(hidden_size, hidden_size)
+            self.linear = FactorisedNoisyLayer(hidden_size, out_size)
         else:
+            self.first = nn.Linear(in_size, hidden_size)
             self.hidden = nn.Linear(hidden_size, hidden_size)
             self.linear = nn.Linear(hidden_size, out_size)
 
     def forward(self, x, h_0=None):
         self.gru.flatten_parameters()
+        x = F.relu(self.first(x))
+        x = F.relu(self.hidden(x))
         if h_0 is not None:
             output, x = self.gru(x.reshape(1, 1, x.shape[0]), h_0)
         else:
             output, x = self.gru(x.reshape(1, 1, x.shape[0]))
-        x = F.relu(self.hidden(x))
+        # x = F.relu(self.hidden(x))
         return output, F.softmax(self.linear(x).flatten(), dim=0)
     
     def batch_forward(self, x, h_0=None):
         self.gru.flatten_parameters()
+        x = F.relu(self.first(x))
+        x = F.relu(self.hidden(x))
         if h_0 is not None:
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]), h_0)
         else:
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]))
-        x = F.relu(self.hidden(x))
+        # x = F.relu(self.hidden(x))
         return output, F.softmax(self.linear(x), dim=2)
     
     def sample_noise(self):
@@ -115,31 +247,37 @@ class VIPCriticIPD(nn.Module):
         if gru:
             self.gru = gru
         else:
-            self.gru = nn.GRU(in_size, hidden_size, num_layers, batch_first=True)
+            self.gru = nn.GRU(hidden_size, hidden_size, num_layers, batch_first=True)
 
         if noisy:
-            self.hidden = NoisyLinear(hidden_size, hidden_size, device)
-            self.linear = NoisyLinear(hidden_size, 1, device)
+            self.first = FactorisedNoisyLayer(in_size, hidden_size)
+            self.hidden = FactorisedNoisyLayer(hidden_size, hidden_size)
+            self.linear = FactorisedNoisyLayer(hidden_size, 1)
         else:
+            self.first = nn.Linear(in_size, hidden_size)
             self.hidden = nn.Linear(hidden_size, hidden_size)
             self.linear = nn.Linear(hidden_size, 1)
 
     def forward(self, x, h_0=None):
         self.gru.flatten_parameters()
+        x = F.relu(self.first(x))
+        x = F.relu(self.hidden(x))
         if h_0 is not None:
             output, x = self.gru(x.reshape(1, 1, x.shape[0]), h_0)
         else:
             output, x = self.gru(x.reshape(1, 1, x.shape[0]))
-        x = F.relu(self.hidden(x))
+        # x = F.relu(self.hidden(x))
         return output, self.linear(F.relu(x)).flatten()
     
     def batch_forward(self, x, h_0=None):
         self.gru.flatten_parameters()
+        x = F.relu(self.first(x))
+        x = F.relu(self.hidden(x))
         if h_0 is not None:
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]), h_0)
         else:
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]))
-        x = F.relu(self.hidden(x))
+        # x = F.relu(self.hidden(x))
         return output, self.linear(F.relu(x))
     
     def sample_noise(self):
@@ -147,7 +285,7 @@ class VIPCriticIPD(nn.Module):
         self.linear.sample_noise()
 
 class VIPActor(nn.Module):
-    def __init__(self, in_size, out_size, device, hidden_size=40, num_layers=1):
+    def __init__(self, in_size, out_size, device, hidden_size=40, num_layers=1, noisy=False):
         super(VIPActor, self).__init__()
 
         self.in_size = in_size
@@ -156,10 +294,16 @@ class VIPActor(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
 
-        self.first = nn.Linear(self.in_size, self.hidden_size)
         self.gru = nn.GRU(hidden_size, hidden_size, num_layers, batch_first=True)
-        self.hidden = nn.Linear(self.hidden_size, self.in_size)
-        self.linear = nn.Linear(self.in_size, self.out_size)
+
+        if noisy:
+            self.first = FactorisedNoisyLayer(in_size, hidden_size)
+            self.hidden = FactorisedNoisyLayer(hidden_size, hidden_size)
+            self.linear = FactorisedNoisyLayer(hidden_size, out_size)
+        else:
+            self.first = nn.Linear(self.in_size, self.hidden_size)
+            self.hidden = nn.Linear(hidden_size, hidden_size)
+            self.linear = nn.Linear(hidden_size, out_size)
 
     def forward(self, x, h_0=None):
         inpt = x
@@ -182,9 +326,14 @@ class VIPActor(nn.Module):
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]))
         x = F.relu(self.hidden(x + F.relu(self.first(inpt))))
         return output, F.softmax(self.linear(x), dim=2)
+    
+    def sample_noise(self):
+        self.first.sample_noise()
+        self.hidden.sample_noise()
+        self.linear.sample_noise()
 
 class VIPCritic(nn.Module):
-    def __init__(self, in_size, device, hidden_size=40, num_layers=1):
+    def __init__(self, in_size, device, hidden_size=40, num_layers=1, noisy=False):
         super(VIPCritic, self).__init__()
 
         self.in_size = in_size
@@ -192,10 +341,16 @@ class VIPCritic(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
 
-        self.first = nn.Linear(self.in_size, self.hidden_size)
         self.gru = nn.GRU(hidden_size, hidden_size, num_layers, batch_first=True)
-        self.hidden = nn.Linear(self.hidden_size, self.in_size)
-        self.linear = nn.Linear(self.in_size, 1)
+
+        if noisy:
+            self.first = FactorisedNoisyLayer(in_size, hidden_size)
+            self.hidden = FactorisedNoisyLayer(hidden_size, hidden_size)
+            self.linear = FactorisedNoisyLayer(hidden_size, 1)
+        else:
+            self.first = nn.Linear(self.in_size, self.hidden_size)
+            self.hidden = nn.Linear(hidden_size, hidden_size)
+            self.linear = nn.Linear(hidden_size, 1)
 
     def forward(self, x, h_0=None):
         inpt = x
@@ -218,6 +373,11 @@ class VIPCritic(nn.Module):
             output, x = self.gru(x.reshape(x.shape[0], 1, x.shape[1]))
         x = F.relu(self.hidden(x + F.relu(self.first(inpt))))
         return output, self.linear(x)
+    
+    def sample_noise(self):
+        self.first.sample_noise()
+        self.hidden.sample_noise()
+        self.linear.sample_noise()
 
 class HistoryAggregator(nn.Module):
     def __init__(self, in_size, out_size, device, hidden_size=40, num_layers=1):

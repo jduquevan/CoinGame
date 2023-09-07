@@ -7,7 +7,7 @@ import numpy as np
 
 from omegaconf import DictConfig, OmegaConf
 
-from .agents import VIPAgent, AlwaysCooperateAgent, AlwaysDefectAgent
+from .agents import VIPAgent, AlwaysCooperateAgent, AlwaysDefectAgent, NaiveAgent
 from .algos import run_vip, run_vip_v2
 from .coin_game import OGCoinGameGPU
 from .ipd import IPD
@@ -33,7 +33,7 @@ def main(args: DictConfig):
     evaluation_steps = config["evaluation_steps"]
     target_update = config["target_update"]
     entropy_weight = config["entropy_weight"]
-    batch_size = config["vip_agent"]["batch_size"]
+    batch_size = config["batch_size"]
 
     if env_type == "cg":
         n_actions = 4
@@ -43,13 +43,13 @@ def main(args: DictConfig):
         obs, _ = env.reset()
         
         agent_1 = VIPAgent(config["base_agent"],
-                           **config["vip_agent"],
+                           **config["vip_agent_1"],
                            device=device,
                            n_actions=n_actions,
                            obs_shape=obs[0].shape,
                            is_cg=True)
         agent_2 = VIPAgent(config["base_agent"],
-                           **config["vip_agent"],
+                           **config["vip_agent_2"],
                            device=device, 
                            n_actions=n_actions,
                            obs_shape=obs[0].shape,
@@ -71,7 +71,7 @@ def main(args: DictConfig):
                     is_cg=True,
                     always_cooperate=always_cooperate,
                     always_defect=always_defect)
-        elif  version=="v2":
+        elif version=="v2":
             run_vip_v2(env=env, 
                        agent_a=agent_1, 
                        agent_b=agent_1, 
@@ -92,13 +92,13 @@ def main(args: DictConfig):
         obs, _ = env.reset()
         
         agent_1 = VIPAgent(config["base_agent"],
-                           **config["vip_agent"],
+                           **config["vip_agent_1"],
                            device=device,
                            n_actions=n_actions,
                            obs_shape=obs[0].shape,
                            is_cg=False)
         agent_2 = VIPAgent(config["base_agent"],
-                           **config["vip_agent"],
+                           **config["vip_agent_2"],
                            device=device,
                            n_actions=n_actions,
                            obs_shape=obs[0].shape,
@@ -106,7 +106,7 @@ def main(args: DictConfig):
 
         run_vip(env=env, 
                 agent_a=agent_1, 
-                agent_b=agent_1, 
+                agent_b=agent_2, 
                 reward_window=reward_window, 
                 device=device,
                 target_update=target_update,
